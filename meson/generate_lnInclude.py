@@ -1,41 +1,100 @@
 #!/usr/bin/env python3
 
+# This script will recursively walk the current PWD and search for folders
+# called "Make". If It finds one, it creates a folder called "lnInclude" next to
+# it and puts symlinks to every C/C++ source file inside this lnInclude folder.
+# Example:
+# Before
+# ```
+# $ tree
+# .
+# └── mydir
+#     ├── a.H
+#     ├── Make
+#     └── sub
+#         └── b.H
+# $ /path/to/generate_lnInclude.py
+# $ tree
+# .
+# └── mydir
+#     ├── a.H
+#     ├── lnInclude
+#     │   ├── a.H -> ../a.H
+#     │   └── b.H -> ../sub/b.H
+#     ├── Make
+#     └── sub
+#         └── b.H
+# ```
+
+# Why do we need this script?
+# If some file contains the line
+# #include "b.H"
+# we need to make sure this file is found. I see 3 ways to do this:
+# 1. Add the -I/path/to/mydir/sub compiler flag
+# 2. Create the lnInclude symlinks as explained above and add the -I/path/to/mydir/lnInclude compiler flag
+# 3. Create these lnInclude symlinks in the build directory and add the -I/path/to/buildir/something compiler flag.
+#
+# I tried 1., but the problem is that it results in really, really long
+# compilation commands, since we do need both -I/path/to/mydir/sub and
+# -I/path/to/mydir/ because we do not know wheter a.H or b.H will be included.
+#
+# Since build artifacts in the source tree are bad practice, 3. would be
+# somewhat nicer than 2. . But the advantage of 2. is that we use the same
+#    lnInclude folders as wmake does, making comparing them and debugging
+#    differences somewhat easier. Also, I'm to lazy to implement 3. .
+
+
+# Tipp: Use this to remove all the lnInclude directories:
+# find -name lnInclude -exec rm -r {} \;
+
 from os import path, listdir, walk, symlink, unlink, readlink
 import os
 
 source_file_endings = ["hpp", "cpp", "H", "C", "h", "C"]
 
-
-def gen_symlinks(input, output):
+# Generates the list of symlinks that should exist.
+def gen_symlink_list(input, output):
+    symlinks = []
     for entries in walk(input, topdown=False):
         flag = False
         if entries[0] == output:
             continue
         for fp in entries[2]:
-            if fp.split(".")[-1] in source_file_endings:
-                tot = path.join(entries[0], fp)
-                target = path.join(output, fp)
-                tot = path.relpath(tot, start=output)
-                if path.islink(target) and not path.exists(
-                    path.join(output, readlink(target))
-                ):
-                    os.unlink(target)
-                if not path.exists(target) and not path.islink(target):
-                    symlink(tot, target)
-                assert path.exists(path.join(output, readlink(target)))
+            if "." in fp and fp.split(".")[-1] in source_file_endings:
+                symlink_to = path.relpath(path.join(entries[0], fp), start=output)
+                symlink_from = path.join(output, fp)
+                symlinks.append((symlink_from, symlink_to))
+    return symlinks
 
 
-def scan_path(dirpath):
-    for entries in walk(".", topdown=False):
-        # if "Make" in entries[1]:
-        if not entries[0].endswith("lnInclude"):
+# Checks whether the list of symlinks contains something like
+# (lnInclude/a.C, subFolder/a.C)
+# (lnInclude/a.C, otherSubFolder/a.C)
+# Which would be a problem since we cannot create two different symlinks at the
+# same path. If no such conflicts are found, True is returned.
+def check_symlink_list(symlinks):
+    froms = [el[0] for el in symlinks]
+    return len(froms) == len(set(froms))
+
+
+def create_symlinks(symlinks):
+    for (symlink_from, symlink_to) in symlinks:
+        if os.path.exists(symlink_from):
+            assert readlink(symlink_from) == symlink_to
+        else:
+            symlink(symlink_to, symlink_from)
+
+
+def gen_lnInclude(topdir):
+    for entries in walk(topdir, topdown=False):
+        if "Make" in entries[1]:
+            assert not entries[0].endswith("lnInclude")
             output = path.join(entries[0], "lnInclude")
-            if not os.path.exists(output):
-                os.mkdir(output)
-            gen_symlinks(entries[0], output)
-        # for dp in entries[1]:
-        # 	if dp == "lnInclude":
-        # 		gen_symlinks(entries[0], path.join(entries[0], dp))
+            symlinks = gen_symlink_list(entries[0], output)
+            if check_symlink_list(symlinks):
+                if not os.path.exists(output):
+                    os.mkdir(output)
+                create_symlinks(symlinks)
 
 
-scan_path(".")
+gen_lnInclude(".")
