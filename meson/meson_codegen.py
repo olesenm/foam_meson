@@ -1,4 +1,7 @@
 #!/bin/false
+# generate_meson_build.py gives the recipes we want to build to this file. This file then sorts them, makes the paths relative and as short as possible (e.g. abc/../abc is just abc), splits the recipes among different meson.build files and finally writes it out to disk.
+# Grep for EXPLAIN_CODEGEN will help you understand it
+
 
 import os
 import re
@@ -31,8 +34,59 @@ def writef(path, data):
         ofile.write(data)
 
 
+# Template is essentially a wrapper around a string (Template.temp is a string), but with '<PATH>/some/path</PATH>' instead of '/some/path', which allows us to do things like: Replace all absolute paths with equivalent relative paths
+class Template:
+    regex = re.compile("<PATH>(.*?)</PATH>")
+
+    def export_relative(self, dir):
+        def file_matcher(mobj):
+            path = mobj.group(1)
+            assert os.path.isabs(path)
+            path = os.path.relpath(path, str(dir))
+            return path
+
+        return self.regex.sub(file_matcher, self.temp)
+
+    def __init__(self, temp):
+        self.temp = temp
+
+    def make_absolute(self, dir):
+        def file_matcher(mobj):
+            path = mobj.group(1)
+            if not os.path.isabs(path):
+                abs = dir / path
+                assert os.path.exists(abs), abs
+                path = str(abs)
+            assert os.path.isabs(path)
+            return "<PATH>" + path + "</PATH>"
+
+        self.temp = self.regex.sub(file_matcher, self.temp)
+
+    def assert_absolute(self):
+        for path in self.regex.findall(self.temp):
+            assert os.path.isabs(path)
+
+    def cleanup(self):
+        def file_matcher(mobj):
+            path = mobj.group(1)
+            path = os.path.normpath(path)
+            return "<PATH>" + path + "</PATH>"
+
+        self.temp = self.regex.sub(file_matcher, self.temp)
+
+
+# A Node represents one recipe that we need to put in some meson.build file.
 class Node:
-    def __init__(self, ddeps, template, ideal):
+    # template.temp is the the recipe as a string, but with '<PATH>/some/path</PATH>' instead of '/some/path'
+    template: Template
+    # Direkt Dependencies of this recipe
+    ddeps: list[str]
+    # Path of the ideal meson.build file to put this recipe in. E.g.
+    # ('applications', 'solvers', 'DNS', 'dnsFoam')
+    ideal: tuple[str]
+    # todo: rename ideal to outpath
+
+    def __init__(self, ddeps, template: Template, ideal):
         self.ddeps = ddeps
         self.template = template
         self.ideal = ideal
@@ -44,6 +98,22 @@ class BuildDesc:
         self.elements = {}
         self.rdeps = {}
         self.custom_prefixes = {}
+
+    # This method will write some meson.build files to disk. They are broken and
+    # will not build, but reading them and this function will make understanding the rest of this
+    # file easier. Enable this by setting EXPLAIN_CODEGEN = True in generate_meson_build.py
+    def explainatory_helper(self):
+        os.system("find '" + str(self.root) + "' -name meson.build -delete ")
+
+        for (path, prefix) in self.custom_prefixes.items():
+            with open(path, "a") as ofile:
+                ofile.write(prefix)
+
+        for (key, el) in self.elements.items():
+            recipe = el.template.temp.replace("<PATH>", "").replace("</PATH>", "")
+            outpath = Path(self.root, *el.ideal, "meson.build")
+            with open(outpath, "a") as ofile:
+                ofile.write(recipe)
 
     def set_custom_prefix(self, path, custom):
         assert path.parts[-1] == "meson.build"
@@ -74,6 +144,17 @@ class BuildDesc:
         depth = len(subgroup)
         ret = set()
         for dep in el.ddeps:
+            if dep not in self.elements:
+                print(
+                    "ERROR: The following recipe depends on "
+                    + dep
+                    + " but there is no rule that proviles lib_CGAl:\n"
+                    + "-" * 50
+                    + "\n"
+                    + el.template.temp
+                )
+                exit(1)
+            self.elements[dep]
             if not self.starts_with(subgroup, self.elements[dep].ideal):
                 continue
             if len(self.elements[dep].ideal) == depth:
@@ -220,46 +301,6 @@ class BuildDesc:
         generated_files = {}
         self.writer_recursion(generated_files, [])
         return generated_files
-
-
-class Template:
-    regex = re.compile("<PATH>(.*?)</PATH>")
-
-    def export_relative(self, dir):
-        def file_matcher(mobj):
-            path = mobj.group(1)
-            assert os.path.isabs(path)
-            path = os.path.relpath(path, str(dir))
-            return path
-
-        return self.regex.sub(file_matcher, self.temp)
-
-    def __init__(self, temp):
-        self.temp = temp
-
-    def make_absolute(self, dir):
-        def file_matcher(mobj):
-            path = mobj.group(1)
-            if not os.path.isabs(path):
-                abs = dir / path
-                assert os.path.exists(abs), abs
-                path = str(abs)
-            assert os.path.isabs(path)
-            return "<PATH>" + path + "</PATH>"
-
-        self.temp = self.regex.sub(file_matcher, self.temp)
-
-    def assert_absolute(self):
-        for path in self.regex.findall(self.temp):
-            assert os.path.isabs(path)
-
-    def cleanup(self):
-        def file_matcher(mobj):
-            path = mobj.group(1)
-            path = os.path.normpath(path)
-            return "<PATH>" + path + "</PATH>"
-
-        self.temp = self.regex.sub(file_matcher, self.temp)
 
 
 def largest_commons_prefix(paths):

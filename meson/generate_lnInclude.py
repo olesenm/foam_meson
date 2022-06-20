@@ -34,9 +34,12 @@
 # 2. Create the lnInclude symlinks as explained above and add the -I/path/to/mydir/lnInclude compiler flag
 # 3. Create these lnInclude symlinks in the build directory and add the -I/path/to/buildir/something compiler flag.
 #
-# I tried 1., but the problem is that it results in really, really long
-# compilation commands, since we do need both -I/path/to/mydir/sub and
-# -I/path/to/mydir/ because we do not know wheter a.H or b.H will be included.
+# The problem with 1. is that it results in really, really long compilation
+# commands, since we do need both -I/path/to/mydir/sub and -I/path/to/mydir/
+# because we do not know wheter a.H or b.H will be included. The compilation
+# commands get so long that the build fails with:
+# c++: fatal error: cannot execute ‘/usr/lib/gcc/x86_64-pc-linux-gnu/10.2.0/cc1plus’: execv: Argument list too long
+# You can enable 1. by setting USING_LNINCLUDE = False in generate_meson_build.py.
 #
 # Since build artifacts in the source tree are bad practice, 3. would be
 # somewhat nicer than 2. . But the advantage of 2. is that we use the same
@@ -44,7 +47,7 @@
 #    differences somewhat easier. Also, I'm to lazy to implement 3. .
 
 
-# Tipp: Use this to remove all the lnInclude directories:
+# Tip: Use this to remove all the lnInclude directories:
 # find -name lnInclude -exec rm -r {} \;
 
 from os import path, listdir, walk, symlink, unlink, readlink

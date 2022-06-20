@@ -1,19 +1,14 @@
 #!/usr/bin/env python3
 
-# usuage:
-# cd openfoam
-# meson/generate_lnInclude.py
-# source etc/bashrc
-# meson/generate_meson_build.py
-# meson setup builddir
-# meson compile -C builddir
-
 # TODO: Add guards against executing with the wrong pwd
 
+# todo doc reference
 # If USING_LNINCLUDE = False, then we run into this problem:
 # c++: fatal error: cannot execute ‘/usr/lib/gcc/x86_64-pc-linux-gnu/10.2.0/cc1plus’: execv: Argument list too long
 USING_LNINCLUDE = True
 GROUP_FULL_DIRS = True
+EXPLAIN_CODEGEN = False
+CACHE_TOTDESC = True  # Only enable this if you are know what you are doing
 
 from os import path, listdir, walk
 import os
@@ -22,6 +17,7 @@ import re
 from meson_codegen import *
 import sys
 import textwrap
+import tempfile
 
 
 def from_this_directory():
@@ -45,14 +41,14 @@ assert os.environ["WM_PROJECT_DIR"] != "", "Did you forget sourcing etc/bashrc?"
 target_blacklist = ["lib_boost_system", "lib_fftw3", "lib_mpi", "lib_z"]
 
 
-def scan_path(dirpath, stage):
+def scan_path(totdesc, dirpath, stage):
     if dirpath.split("/")[-1] == "codeTemplates":
         return
 
     for el in listdir(dirpath):
         tot = path.join(dirpath, el)
         if path.isdir(tot):
-            scan_path(tot, stage)
+            scan_path(totdesc, tot, stage)
 
     # todo: what about MGridGenGamgAgglomeration?
     # 00-dummy does not build, even with wmake
@@ -91,7 +87,7 @@ def scan_path(dirpath, stage):
         and not "00-dummy" in dirpath
         and not dirpath.startswith("./applications/utilities/mesh/conversion/ccm")
     ):
-        wmake_to_meson(path.join(dirpath, "Make"), stage)
+        wmake_to_meson(totdesc, path.join(dirpath, "Make"), stage)
 
 
 # https://gist.github.com/ChunMinChang/88bfa5842396c1fbbc5b
@@ -236,7 +232,7 @@ def group_full_dirs(srcfiles):
 lib_paths = {}
 
 
-def wmake_to_meson(dirpath, stage):
+def wmake_to_meson(totdesc, dirpath, stage):
     # print(dirpath)
     assert dirpath.split("/")[-1] == "Make"
     thisdir = path.normpath(path.join(dirpath, ".."))
@@ -260,9 +256,19 @@ def wmake_to_meson(dirpath, stage):
     elif "$(LIB_INC)" in optionsdict:
         inckey = "$(LIB_INC)"
 
+    def show_debugging_help(arg):
+        print(
+            'A quick tip to the one debugging the warning above:\nWe tried to find this file/dir, because \nparse_file("'
+            + path.join(dirpath, "options")
+            + '")[1]["'
+            + inckey
+            + '"]\ncontains:\n'
+            + arg
+        )
+
     if inckey is not None:
-        for el in optionsdict[inckey].split(" "):
-            el = el.lstrip()
+        for arg in optionsdict[inckey].split(" "):
+            el = arg.lstrip()
             if el == "":
                 continue
             if not el.startswith("-I"):
@@ -271,19 +277,28 @@ def wmake_to_meson(dirpath, stage):
                 print(dirpath, "warning: unresolved variable in ", el)
                 continue
             el = remove_prefix(el, "-I")
-            if el.endswith("lnInclude"):
-                recdir = os.path.normpath(str(PROJECT_ROOT / thisdir / el / ".."))
+            if os.path.isabs(el):
+                abspath = el
+            else:
+                abspath = PROJECT_ROOT / thisdir / el
+
+            if str(abspath).endswith("lnInclude"):
+                recdir = os.path.normpath(str(abspath / ".."))
                 if USING_LNINCLUDE:
-                    if path.exists(str(PROJECT_ROOT / thisdir / el)):
-                        incdirs.append(
-                            "'<PATH>" + str(PROJECT_ROOT / thisdir / el) + "</PATH>'"
-                        )
+                    if path.exists(str(abspath)):
+                        incdirs.append("'<PATH>" + str(abspath) + "</PATH>'")
                     else:
-                        print(
-                            "warning in " + dirpath + "/options :",
-                            str(PROJECT_ROOT / thisdir / el),
-                            "does not exist",
-                        )
+                        pass
+                        # TODO:
+                        # I would like to enable this warning, but
+                        # https://develop.openfoam.com/Development/openfoam/-/issues/1994 should
+                        # be resolved before this, otherwise we will get too many warning
+                        # print(
+                        #     "warning:",
+                        #     str(abspath),
+                        #     "does not exist",
+                        # )
+                        # show_debugging_help(arg)
                 else:
                     if path.exists(recdir):
                         incdirs.append(
@@ -293,23 +308,22 @@ def wmake_to_meson(dirpath, stage):
                         )
                     else:
                         print(
-                            "warning in " + dirpath + "/options :",
+                            "warning:",
                             recdir,
                             "does not exist",
                         )
+                        show_debugging_help(arg)
 
             else:
-                totpath = dirpath + "/../" + el
-                if path.exists(totpath):
-                    incdirs.append(
-                        "'<PATH>" + str(PROJECT_ROOT / thisdir / el) + "</PATH>'"
-                    )
+                if path.exists(abspath):
+                    incdirs.append("'<PATH>" + str(abspath) + "</PATH>'")
                 else:
                     print(
-                        "warning in " + dirpath + "/options :",
-                        totpath,
+                        "warning:",
+                        abspath,
                         "does not exist",
                     )
+                    show_debugging_help(arg)
     if USING_LNINCLUDE:
         if path.exists(dirpath + "/../" + "lnInclude"):
             incdirs.append(
@@ -348,15 +362,23 @@ def wmake_to_meson(dirpath, stage):
             if el.startswith("-Wl,") and el.endswith(path.sep + "openmpi"):
                 # on my machine: el == "-Wl,/usr/lib/openmpi"
                 continue
-            if el in ["-Wl,-rpath", "-Wl,--enable-new-dtags"]:
+            if el in [
+                "-Wl,-rpath",
+                "-Wl,/usr/lib",
+                "-Wl,--enable-new-dtags",
+            ]:  # todo special
+                # These flags orignate from the line
+                # PLIBS   = $(shell mpicc --showme:link)
+                # in wmake/rules/General/mpi-mpicc-openmpi
                 # I don't really know what these flags do, but I think we would notice it if it would be necessary.
                 continue
             if not el.startswith("-l"):
                 print("warning in ", dirpath, ": not starting with -l: ", el)
+                exit(1)
                 continue
 
             el = remove_prefix(el, "-l")
-            if el == "boost_system":
+            if el == "boost_system":  # todo special
                 dependencies.append("boost_system_dep")
             elif el == "fftw3":
                 dependencies.append("fftw3_dep")
@@ -461,8 +483,8 @@ def wmake_to_meson(dirpath, stage):
                         "flexgen.process('<PATH>" + line.rstrip() + "</PATH>')"
                     )
                     group_srcs.append(str(PROJECT_ROOT / thisdir / line.rstrip()))
-                elif line == "global/global.Cver":
-                    gen_sources.append("global_cpp")
+                elif line == "global/foamConfig.Cver":  # todo special
+                    gen_sources.append("foamConfig_cpp")
                 elif (
                     line.endswith(".hpp")
                     or line.endswith(".H")
@@ -567,11 +589,11 @@ def wmake_to_meson(dirpath, stage):
 
 def parse_file(fp):
     with open(fp) as infile:
-        lines = infile.read()
+        makefilesource = infile.read()
     specials = []
-    lines = commentRemover(lines)
-    if "include $(GENERAL_RULES)/CGAL" in lines:
-        lines = lines.replace("include $(GENERAL_RULES)/CGAL", "")
+    makefilesource = commentRemover(makefilesource)
+    if "${CGAL_LIBS}" in makefilesource:  # todo: special
+        makefilesource = makefilesource.replace("${CGAL_LIBS}", "")
         specials.append("CGAL")
 
     reldir = "/".join(fp.split("/")[:-2])
@@ -588,16 +610,22 @@ def parse_file(fp):
         # "$(FOAM_LIBBIN)": path.relpath("platforms/linux64GccDPInt32Opt/lib", reldir), #todo: we should not rely on platforms/...
         "$(GENERAL_RULES)": "wmake/rules/General",
     }
-    with open("makefile", "w") as makeout:
+
+    with tempfile.NamedTemporaryFile("w") as makeout:
         for key in vardict:
             makeout.write(key[2:-1] + "=" + vardict[key] + "\n")
-        makeout.write(lines)
+        makeout.write(makefilesource)
         makeout.write(
             "\nprint_stuff:\n\techo $(LIB_INC)\n\techo $(EXE_INC)\n\techo $(LIB_LIBS)\n\techo $(EXE_LIBS)\n"
         )
-    vars = (
-        subprocess.check_output("make -s print_stuff", shell=True).decode().split("\n")
-    )
+        makeout.flush()
+        vars = (
+            subprocess.check_output(
+                "make -s print_stuff --file " + makeout.name, shell=True
+            )
+            .decode()
+            .split("\n")
+        )
     if vars[0] != "":
         vardict["$(LIB_INC)"] = vars[0]
     if vars[1] != "":
@@ -609,107 +637,121 @@ def parse_file(fp):
     return [], vardict, specials
 
 
-mainsrc = """
-project('OpenFOAM', 'c', 'cpp',
-  default_options : ['warning_level=0', 'b_lundef=false', 'b_asneeded=false'])
+def main():
+    mainsrc = """
+    project('OpenFOAM', 'c', 'cpp',
+    default_options : ['warning_level=0', 'b_lundef=false', 'b_asneeded=false'])
 
-add_project_arguments('-DWM_LABEL_SIZE='+get_option('WM_LABEL_SIZE'), language : 'cpp')
-add_project_arguments('-Wfatal-errors', language : 'cpp')
-add_project_arguments('-DWM_DP', language : 'cpp')
-add_project_arguments('-DNoRepository', language : 'cpp')
-add_project_arguments('-DOPENFOAM=2006', language : 'cpp')
-add_project_arguments('-DOMPI_SKIP_MPICXX', language : 'cpp')
-add_project_arguments('-ftemplate-depth-100', language : 'cpp')
-add_project_arguments('-m64', language : ['c', 'cpp'])
-add_project_link_arguments('-Wl,--add-needed', language : 'cpp')
-if get_option('debug')
-  add_project_arguments('-DFULLDEBUG', language : ['c', 'cpp'])
-  add_project_arguments('-fdefault-inline', language : ['c', 'cpp'])
-  add_project_arguments('-finline-functions', language : 'c')
-else
-  add_project_arguments('-frounding-math', language : 'cpp')
-endif
+    add_project_arguments('-DWM_LABEL_SIZE='+get_option('WM_LABEL_SIZE'), language : 'cpp')
+    add_project_arguments('-Wfatal-errors', language : 'cpp')
+    add_project_arguments('-DWM_DP', language : 'cpp')
+    add_project_arguments('-DNoRepository', language : 'cpp')
+    add_project_arguments('-DOPENFOAM=2006', language : 'cpp')
+    add_project_arguments('-DOMPI_SKIP_MPICXX', language : 'cpp')
+    add_project_arguments('-ftemplate-depth-100', language : 'cpp')
+    add_project_arguments('-m64', language : ['c', 'cpp'])
+    add_project_link_arguments('-Wl,--add-needed', language : 'cpp')
+    if get_option('debug')
+    add_project_arguments('-DFULLDEBUG', language : ['c', 'cpp'])
+    add_project_arguments('-fdefault-inline', language : ['c', 'cpp'])
+    add_project_arguments('-finline-functions', language : 'c')
+    else
+    add_project_arguments('-frounding-math', language : 'cpp')
+    endif
 
-global_cpp = custom_target('global.cpp',
-  output : 'global.cpp',
-  input : 'src/OpenFOAM/global/global.Cver',
-  command : [meson.source_root() / 'meson' / 'set_versions_in_global_Cver.sh', meson.source_root(), '@OUTPUT@'])
-  #todo: what if src/bashrc is the wrong script to source?
+    foamConfig_cpp = custom_target('foamConfig.cpp',
+    output : 'foamConfig.cpp',
+    input : 'src/OpenFOAM/global/foamConfig.Cver',
+    command : [meson.source_root() / 'meson' / 'set_versions_in_foamConfig_Cver.sh', meson.source_root(), '@OUTPUT@'])
+    #todo: what if src/bashrc is the wrong script to source?
 
-cppc = meson.get_compiler('cpp')
-m_dep = cppc.find_library('m')
-dl_dep = cppc.find_library('dl')
-z_dep = cppc.find_library('z')
+    cppc = meson.get_compiler('cpp')
+    m_dep = cppc.find_library('m')
+    dl_dep = cppc.find_library('dl')
+    z_dep = cppc.find_library('z')
 
-cgal_dep = cppc.find_library('CGAL', required: false)
-mpfr_dep = cppc.find_library('mpfr', required: false)
-gmp_dep = cppc.find_library('gmp', required: false)
+    cgal_dep = cppc.find_library('CGAL', required: false)
+    mpfr_dep = cppc.find_library('mpfr', required: false)
+    gmp_dep = cppc.find_library('gmp', required: false)
 
-boost_system_dep = dependency('boost', modules : ['system'])
-fftw3_dep = dependency('fftw3')
-mpi_dep = dependency('mpi')
-thread_dep = dependency('threads')
+    boost_system_dep = dependency('boost', modules : ['system'])
+    fftw3_dep = dependency('fftw3')
+    mpi_dep = dependency('mpi')
+    thread_dep = dependency('threads')
 
-if not cgal_dep.found()
-  # applications/utilities/surface/surfaceBooleanFeatures is the only directory that needs this flag, but a global argument seems nicer
-  add_project_arguments('-DNO_CGAL', language : 'cpp')
-endif
+    if not cgal_dep.found()
+    # applications/utilities/surface/surfaceBooleanFeatures and applications/utilities/surface/surfaceBooleanFeatures/PolyhedronReader are the only directories that needs this flag, but a global argument seems nicer
+    add_project_arguments('-DNO_CGAL', language : 'cpp')
+    endif
 
-lemonbin = executable('lemon', 'wmake/src/lemon.c', native: true)
+    lemonbin = executable('lemon', 'wmake/src/lemon.c', native: true)
 
-# Todo: make sure that the generators are only run once
+    # Todo: make sure that the generators are only run once
 
-# Shamelessly stolen from https://github.com/mesonbuild/meson/blob/master/test%20cases/frameworks/8%20flex/meson.build
-flex = find_program('flex')
-flexgen = generator(flex,
-output : '@PLAINNAME@.yy.cpp',
-arguments : ['--c++', '--full', '-o', '@OUTPUT@', '@INPUT@'])
+    # Shamelessly stolen from https://github.com/mesonbuild/meson/blob/master/test%20cases/frameworks/8%20flex/meson.build
+    flex = find_program('flex')
+    flexgen = generator(flex,
+    output : '@PLAINNAME@.yy.cpp',
+    arguments : ['--c++', '--full', '-o', '@OUTPUT@', '@INPUT@'])
 
-m4bin = find_program('m4')
-m4gen = generator(m4bin,
-output : '@PLAINNAME@.lyy',
-arguments : ['@INPUT@', '>', '@OUTPUT@']
-)
+    m4bin = find_program('m4')
+    m4gen = generator(m4bin,
+    output : '@PLAINNAME@.lyy',
+    arguments : ['@INPUT@', '>', '@OUTPUT@']
+    )
 
-lemongen = generator(lemonbin,
-output : '@BASENAME@.cc',
-arguments : ['-Twmake/etc/lempar.c', '-d.', '-ecc', '-Dm4', '@OUTPUT@', '@INPUT@'])
+    lemongen = generator(lemonbin,
+    output : '@BASENAME@.cc',
+    arguments : ['-Twmake/etc/lempar.c', '-d.', '-ecc', '-Dm4', '@OUTPUT@', '@INPUT@'])
 
-m4lemon = find_program('meson/m4lemon.sh')
-"""
+    m4lemon = find_program('meson/m4lemon.sh')
+    """
 
-totdesc = BuildDesc(PROJECT_ROOT)
-scan_path(".", 1)
-# import pickle
-# with open("outtemp", "wb") as pfile:
-# 	pickle.dump(totdesc, pfile)
+    CACHE_TOTDESC = False
 
-# totdesc = pickle.load(open("outtemp", "rb"))
+    if not CACHE_TOTDESC or not os.path.exists("totdesc_cache"):
+        totdesc = BuildDesc(PROJECT_ROOT)
+        scan_path(totdesc, ".", 1)
 
-totdesc.set_custom_prefix(PROJECT_ROOT / "meson.build", mainsrc)
+    if CACHE_TOTDESC:
+        import pickle
 
-# Without these fixes, grouping cannot be done
+    if CACHE_TOTDESC and os.path.exists("totdesc_cache"):
+        totdesc = pickle.load(open("totdesc_cache", "rb"))
 
-totdesc.elements["lib_lagrangianTurbulence"].ideal = Path("src").parts
-totdesc.elements["lib_lagrangianIntermediate"].ideal = Path("src").parts
-totdesc.elements["lib_lagrangianSpray"].ideal = Path("src").parts
-totdesc.elements["lib_coalCombustion"].ideal = Path("src").parts
-totdesc.elements["lib_turbulenceModels"].ideal = Path("src").parts
-totdesc.elements["lib_snappyHexMesh"].ideal = Path("src").parts
-totdesc.elements["lib_compressibleTurbulenceModels"].ideal = Path("src").parts
-totdesc.elements["lib_turbulenceModelSchemes"].ideal = Path("src").parts
-totdesc.elements["lib_radiationModels"].ideal = Path("src").parts
-totdesc.elements["lib_compressibleTurbulenceModels"].ideal = Path("src").parts
-totdesc.elements["lib_liquidPropertiesFvPatchFields"].ideal = Path("src").parts
-totdesc.elements["lib_geometricVoF"].ideal = Path("src").parts
+    if CACHE_TOTDESC and not os.path.exists("totdesc_cache"):
+        with open("totdesc_cache", "wb") as pfile:
+            pickle.dump(totdesc, pfile)
 
-generated_files = totdesc.writeToFileSystem()
+    totdesc.set_custom_prefix(PROJECT_ROOT / "meson.build", mainsrc)
 
-lib_dirlist = set()
-for fp, targets in generated_files.items():
-    if any(e.startswith("lib_") for e in targets):
-        lib_dirlist.add(os.path.relpath(fp, ROOT_PATH))
-dirlist = set([str(Path(*fp.parts[:-1])) for fp in generated_files])
+    if EXPLAIN_CODEGEN:
+        print(
+            "WARNING: You enabled EXPLAIN_CODEGEN. Attempting to build will not work due to broken meson.build files."
+        )
+        totdesc.explainatory_helper()
+        return
+
+    # Without these fixes, grouping cannot be done
+
+    totdesc.elements["lib_lagrangianTurbulence"].ideal = Path("src").parts
+    totdesc.elements["lib_lagrangianIntermediate"].ideal = Path("src").parts
+    totdesc.elements["lib_lagrangianSpray"].ideal = Path("src").parts
+    totdesc.elements["lib_coalCombustion"].ideal = Path("src").parts
+    totdesc.elements["lib_turbulenceModels"].ideal = Path("src").parts
+    totdesc.elements["lib_snappyHexMesh"].ideal = Path("src").parts
+    totdesc.elements["lib_compressibleTurbulenceModels"].ideal = Path("src").parts
+    totdesc.elements["lib_turbulenceModelSchemes"].ideal = Path("src").parts
+    totdesc.elements["lib_radiationModels"].ideal = Path("src").parts
+    totdesc.elements["lib_compressibleTurbulenceModels"].ideal = Path("src").parts
+    totdesc.elements["lib_liquidPropertiesFvPatchFields"].ideal = Path("src").parts
+    totdesc.elements["lib_geometricVoF"].ideal = Path("src").parts
+
+    generated_files = totdesc.writeToFileSystem()
+
+
+if __name__ == "__main__":
+    main()
 
 # TODO:
 # 4 spaces for indentation, no tabs. We do not use tabs.
