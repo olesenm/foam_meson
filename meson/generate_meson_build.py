@@ -8,7 +8,7 @@
 USING_LNINCLUDE = True
 GROUP_FULL_DIRS = True
 EXPLAIN_CODEGEN = False
-CACHE_TOTDESC = True  # Only enable this if you are know what you are doing
+CACHE_TOTDESC = False  # Only enable this if you are know what you are doing
 
 from os import path, listdir, walk
 import os
