@@ -52,6 +52,8 @@
 
 from os import path, listdir, walk, symlink, unlink, readlink
 import os
+import pprint
+import pathlib
 
 source_file_endings = ["hpp", "cpp", "H", "C", "h", "C"]
 
@@ -61,6 +63,8 @@ def gen_symlink_list(input, output):
     for entries in walk(input, topdown=False):
         flag = False
         if entries[0] == output:
+            continue
+        if "lnInclude" in pathlib.Path(entries[0]).parts:
             continue
         for fp in entries[2]:
             if "." in fp and fp.split(".")[-1] in source_file_endings:
@@ -74,10 +78,21 @@ def gen_symlink_list(input, output):
 # (lnInclude/a.C, subFolder/a.C)
 # (lnInclude/a.C, otherSubFolder/a.C)
 # Which would be a problem since we cannot create two different symlinks at the
-# same path. If no such conflicts are found, True is returned.
-def check_symlink_list(symlinks):
+# same path. If no such conflicts are found, an empty dictionary is returned.
+def symlink_list_conflicts(symlinks):
     froms = [el[0] for el in symlinks]
-    return len(froms) == len(set(froms))
+    fromset = set(froms)
+    # This early return gives us a small performance boost
+    if len(froms) == len(fromset):
+        return {}
+
+    ret = {}
+    for symlink_from in fromset:
+        ar = [el[1] for el in symlinks if el[0] == symlink_from]
+        assert len(ar) >= 1
+        if len(ar) > 1:
+            ret[symlink_from] = ar
+    return ret
 
 
 def create_symlinks(symlinks):
@@ -94,10 +109,19 @@ def gen_lnInclude(topdir):
             assert not entries[0].endswith("lnInclude")
             output = path.join(entries[0], "lnInclude")
             symlinks = gen_symlink_list(entries[0], output)
-            if check_symlink_list(symlinks):
+            conflicts = symlink_list_conflicts(symlinks)
+            if len(conflicts) == 0:
                 if not os.path.exists(output):
                     os.mkdir(output)
                 create_symlinks(symlinks)
+            else:
+                print(f"Warning: Unable to generate {output} due to conflicts:")
+                for (symlink_from, ar) in conflicts.items():
+                    print(
+                        f"\tTo which one of the following files should the symlink at {symlink_from} point to?"
+                    )
+                    for symlink_to in ar:
+                        print("\t\t", symlink_to)
 
 
 gen_lnInclude(".")

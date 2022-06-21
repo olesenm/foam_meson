@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
 
-# TODO: Add guards against executing with the wrong pwd
-
 # todo doc reference
 # If USING_LNINCLUDE = False, then we run into this problem:
 # c++: fatal error: cannot execute ‘/usr/lib/gcc/x86_64-pc-linux-gnu/10.2.0/cc1plus’: execv: Argument list too long
@@ -27,6 +25,8 @@ def from_this_directory():
 from_this_directory()
 os.chdir("..")
 assert os.environ["WM_PROJECT_DIR"] != "", "Did you forget sourcing etc/bashrc?"
+
+# todo
 
 # what if BOOST_INC_DIR or METIS_INC_DIR or KAHIP_INC_DIR or PTSCOTCH_INC_DIR or SCOTCH_INC_DIR or FFTW_INC_DIR is defined?
 
@@ -114,15 +114,6 @@ def hashtagCommentRemover(text):
         r"#.*\n",
     )
     return re.sub(pattern, "\n", text)
-
-
-# print(hashtagCommentRemover(
-# """
-# test
-# # abc # 321
-# test
-# """))
-# exit(1)
 
 
 def find_subdirs(dirpath, el, varname="incdirs", include_directories=False):
@@ -233,7 +224,6 @@ lib_paths = {}
 
 
 def wmake_to_meson(totdesc, dirpath, stage):
-    # print(dirpath)
     assert dirpath.split("/")[-1] == "Make"
     thisdir = path.normpath(path.join(dirpath, ".."))
     statements, optionsdict, specials = parse_file(path.join(dirpath, "options"))
@@ -592,6 +582,9 @@ def parse_file(fp):
         makefilesource = infile.read()
     specials = []
     makefilesource = commentRemover(makefilesource)
+    if "include $(GENERAL_RULES)/CGAL" in makefilesource:
+        makefilesource = makefilesource.replace("include $(GENERAL_RULES)/CGAL", "")
+        specials.append("CGAL")
     if "${CGAL_LIBS}" in makefilesource:  # todo: special
         makefilesource = makefilesource.replace("${CGAL_LIBS}", "")
         specials.append("CGAL")
