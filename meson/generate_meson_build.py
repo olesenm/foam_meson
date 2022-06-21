@@ -16,6 +16,7 @@ from meson_codegen import *
 import sys
 import textwrap
 import tempfile
+import yaml
 
 
 def from_this_directory():
@@ -41,52 +42,21 @@ assert os.environ["WM_PROJECT_DIR"] != "", "Did you forget sourcing etc/bashrc?"
 target_blacklist = ["lib_boost_system", "lib_fftw3", "lib_mpi", "lib_z"]
 
 
-def scan_path(totdesc, dirpath, stage):
-    if dirpath.split("/")[-1] == "codeTemplates":
+def scan_path(yamldata, totdesc, dirpath, stage):
+    if dirpath.split("/")[-1] == "codeTemplates":  # todo special
         return
 
     for el in listdir(dirpath):
         tot = path.join(dirpath, el)
         if path.isdir(tot):
-            scan_path(totdesc, tot, stage)
+            scan_path(yamldata, totdesc, tot, stage)
 
-    # todo: what about MGridGenGamgAgglomeration?
-    # 00-dummy does not build, even with wmake
-    if (
-        path.isdir(path.join(dirpath, "Make"))
-        and not dirpath.split("/")[-1]
-        in [
-            "MGridGenGamgAgglomeration",
-            "zoltanRenumber",
-            "foamyHexMeshSurfaceSimplify",
-            "MSwindows",
-        ]
-        and not dirpath
-        in [
-            "./applications/utilities/mesh/generation/foamyMesh/foamyQuadMesh",
-            "./applications/utilities/mesh/generation/foamyMesh/foamyHexMesh",
-            "./applications/utilities/mesh/generation/foamyMesh/cellSizeAndAlignmentGrid",
-            "./src/functionObjects/randomProcesses/energySpectrum",
-            "./src/parallel/decompose/scotchDecomp",
-            "./src/parallel/decompose/ptscotchDecomp",
-            "./src/parallel/decompose/metisDecomp",
-            "./src/parallel/decompose/kahipDecomp",
-            "./src/conversion/ccm",
-            "./src/Pstream/mpi",
-            "./applications/test/tensorFields1",
-            "./applications/test/IOField",
-            "./applications/test/scalarOps",
-            "./applications/test/DynamicList",
-            "./applications/test/field1",
-            "./applications/test/rigidBodyDynamics/spring",
-            "./applications/test/rigidBodyDynamics/reconstructedDistanceFunction",
-            "./applications/test/reconstructedDistanceFunction",
-            "./applications/utilities/mesh/generation/foamyMesh/foamyHexMeshBackgroundMesh",
-            "./applications/test/surfaceMeshConvert",
-        ]
-        and not "00-dummy" in dirpath
-        and not dirpath.startswith("./applications/utilities/mesh/conversion/ccm")
-    ):
+    # If dirpath is in yamldata["broken_dirs"] or yamldata["ignored_dirs"], we will ignore it
+    ignore = path.abspath(dirpath) in [
+        path.abspath(p) for p in yamldata["broken_dirs"]
+    ] or path.abspath(dirpath) in [path.abspath(p) for p in yamldata["ignored_dirs"]]
+
+    if path.isdir(path.join(dirpath, "Make")) and not ignore:
         wmake_to_meson(totdesc, path.join(dirpath, "Make"), stage)
 
 
@@ -220,6 +190,12 @@ def group_full_dirs(srcfiles):
     return ret
 
 
+# Turns a string into a valid identifier that can be used as a variable name in meson.buil
+def mangle_name(name):
+    return name.replace("-", "_").replace("/", "_slash_")
+
+
+# TODO Aren't global mutable variables evil?
 lib_paths = {}
 
 
@@ -377,7 +353,7 @@ def wmake_to_meson(totdesc, dirpath, stage):
             elif el == "z":
                 dependencies.append("z_dep")
             else:
-                order_depends.append("lib_" + el)
+                order_depends.append("lib_" + mangle_name(el))
     order_provides = None
     group_srcs = []
     srcfiles = []
@@ -405,7 +381,7 @@ def wmake_to_meson(totdesc, dirpath, stage):
                 else:
                     line = remove_prefix(line, "$(PWD)/")
                 line = line.rstrip()
-                provides = ("exe_" + line).replace("-", "_")
+                provides = "exe_" + mangle_name(line)
                 template_end += (
                     provides
                     + " = executable('"
@@ -434,8 +410,8 @@ def wmake_to_meson(totdesc, dirpath, stage):
                         line + "--------------" + dirpath + "--------" + repr(lib_paths)
                     )
                 lib_paths[line] = dirpath
-                line = line.split("/")[-1]
-                provides = ("lib_" + line).replace("-", "_")
+
+                provides = "lib_" + mangle_name(line)
                 template_end += (
                     provides
                     + " = library('"
@@ -573,7 +549,11 @@ def wmake_to_meson(totdesc, dirpath, stage):
     template.cleanup()
     assert order_provides not in target_blacklist
     totdesc.add_template(
-        order_provides, order_depends, template, largest_commons_prefix(group_srcs)
+        order_provides,
+        order_depends,
+        template,
+        largest_commons_prefix(group_srcs),
+        "This recipe originated from " + dirpath,
     )
 
 
@@ -703,8 +683,10 @@ def main():
     CACHE_TOTDESC = False
 
     if not CACHE_TOTDESC or not os.path.exists("totdesc_cache"):
+        with open("meson/data.yaml", "r") as stream:
+            yamldata = yaml.safe_load(stream)
         totdesc = BuildDesc(PROJECT_ROOT)
-        scan_path(totdesc, ".", 1)
+        scan_path(yamldata, totdesc, ".", 1)
 
     if CACHE_TOTDESC:
         import pickle

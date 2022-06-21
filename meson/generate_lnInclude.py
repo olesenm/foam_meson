@@ -45,6 +45,9 @@
 # somewhat nicer than 2. . But the advantage of 2. is that we use the same
 #    lnInclude folders as wmake does, making comparing them and debugging
 #    differences somewhat easier. Also, I'm to lazy to implement 3. .
+#
+# The wmake/wmakeLnInclude contains the code that generates the symlinks if you
+# use wmake instead of meson.
 
 
 # Tip: Use this to remove all the lnInclude directories:

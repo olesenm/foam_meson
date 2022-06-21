@@ -77,6 +77,7 @@ class Template:
 
 # A Node represents one recipe that we need to put in some meson.build file.
 class Node:
+    # todo: rename ideal to outpath
     # template.temp is the the recipe as a string, but with '<PATH>/some/path</PATH>' instead of '/some/path'
     template: Template
     # Direkt Dependencies of this recipe
@@ -84,12 +85,14 @@ class Node:
     # Path of the ideal meson.build file to put this recipe in. E.g.
     # ('applications', 'solvers', 'DNS', 'dnsFoam')
     ideal: tuple[str]
-    # todo: rename ideal to outpath
+    # Will be printed in some warnings/error messages
+    debuginfo: str
 
-    def __init__(self, ddeps, template: Template, ideal):
+    def __init__(self, ddeps, template: Template, ideal, debuginfo):
         self.ddeps = ddeps
         self.template = template
         self.ideal = ideal
+        self.debuginfo = debuginfo
 
 
 class BuildDesc:
@@ -120,7 +123,7 @@ class BuildDesc:
         assert path.is_absolute()
         self.custom_prefixes[path] = custom
 
-    def add_template(self, provides, depends, template, ideal_path):
+    def add_template(self, provides, depends, template, ideal_path, debuginfo):
         ideal = os.path.normpath(ideal_path)
         ideal = remove_prefix(ideal, str(self.root))
         assert len(ideal) == 0 or ideal[0] == os.path.sep
@@ -129,7 +132,7 @@ class BuildDesc:
         assert (
             provides not in self.elements
         ), "you cannot have multiple targets with the same name: " + str(provides)
-        self.elements[provides] = Node(depends, template, ideal)
+        self.elements[provides] = Node(depends, template, ideal, debuginfo)
 
     def starts_with(self, subgroup, ideal):
         depth = len(subgroup)
@@ -146,12 +149,13 @@ class BuildDesc:
         for dep in el.ddeps:
             if dep not in self.elements:
                 print(
-                    "ERROR: The following recipe depends on "
-                    + dep
-                    + " but there is no rule that proviles lib_CGAl:\n"
+                    f"ERROR: The following recipe depends on {dep} but there is no recipe that provides it:\n"
                     + "-" * 50
                     + "\n"
                     + el.template.temp
+                    + "-" * 50
+                    + "\n"
+                    + el.debuginfo
                 )
                 exit(1)
             self.elements[dep]

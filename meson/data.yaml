@@ -1,0 +1,32 @@
+# The following directories do not build, even with wmake (at least on my
+# machine). Running `meson/verify_data.py` verifies this. So we have every right
+# to ignore them.
+# TODO: Check why they fail and talk to upstream
+broken_dirs:
+  - applications/test/00-dummy/dummy
+  - applications/test/rigidBodyDynamics/spring
+  - applications/utilities/mesh/generation/foamyMesh/foamyQuadMesh
+  - applications/utilities/mesh/generation/foamyMesh/foamyHexMesh
+  - applications/utilities/mesh/generation/foamyMesh/cellSizeAndAlignmentGrid
+  - applications/utilities/mesh/generation/foamyMesh/foamyHexMeshBackgroundMesh
+  - applications/utilities/mesh/generation/foamyMesh/foamyHexMeshSurfaceSimplify
+  - src/parallel/decompose/scotchDecomp
+  - src/parallel/decompose/ptscotchDecomp
+  - src/parallel/decompose/metisDecomp
+  - src/parallel/decompose/kahipDecomp
+  - src/conversion/ccm
+  - src/fvAgglomerationMethods/MGridGenGamgAgglomeration
+  - src/renumber/zoltanRenumber
+  - src/OSspecific/MSwindows # That one probably failed because I'm using Linux
+
+# todo: automatically figure out that these need to be ignored because they depend on something broken
+ignored_dirs:
+
+  - applications/utilities/parallelProcessing/redistributePar # Needs to be linked with kahipDecomp which is broken
+  - applications/utilities/parallelProcessing/decomposePar # Needs to be linked with kahipDecomp which is broken
+  - applications/utilities/mesh/generation/snappyHexMesh # Needs to be linked with kahipDecomp which is broken
+  - applications/utilities/mesh/manipulation/renumberMesh # Needs to be linked with kahipDecomp which is broken
+
+
+  - applications/utilities/mesh/conversion/ccm/foamToCcm # Needs to be linked with ccm which is broken
+  - applications/utilities/mesh/conversion/ccm/ccmToFoam # Needs to be linked with ccm which is broken
