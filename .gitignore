@@ -82,3 +82,4 @@ doc/Doxygen/DTAGS
 /tutorialsTest
 
 **/meson.build
+__pycache__
