@@ -3,10 +3,13 @@
 # to ignore them.
 # TODO: Check why they fail and talk to upstream
 broken_dirs:
-  - applications/test/00-dummy/dummy
+  - applications/test/00-dummy/dummy # This directory is empty, with the exception of an empty "Make" directory
+
+  # The following three directories are tests do not compile because someone changed other code without changing the tests. TODO: open an issue
   - applications/test/rigidBodyDynamics/spring
   - applications/test/coordinateSystem
   - applications/test/labelRanges
+
   - applications/utilities/mesh/generation/foamyMesh/foamyQuadMesh
   - applications/utilities/mesh/generation/foamyMesh/foamyHexMesh
   - applications/utilities/mesh/generation/foamyMesh/cellSizeAndAlignmentGrid

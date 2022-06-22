@@ -17,3 +17,8 @@ Note that `source etc/bashrc` is only needed for `meson/generate_meson_build.py`
 - `rm -r builddir; meson setup builddir` needs to be executed if you change something about your OS.
 - `meson/generate_meson_build.py` needs to be executed if you change `.../Make/options` or `.../Make/files` or you you add a new `*.C` or `*.H` file.
 - `meson/generate_lnInclude.py` needs to be executed if you add a new `*.C` or `*.H` file.
+
+
+# What works and what does not work
+
+- It (currently) only supports Linux. Should not be much work to port, but my motivation to work on Windows is about zero.

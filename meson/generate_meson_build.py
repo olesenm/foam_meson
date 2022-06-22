@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+# todo: Doxygen
+
 # todo doc reference
 # If USING_LNINCLUDE = False, then we run into this problem:
 # c++: fatal error: cannot execute ‘/usr/lib/gcc/x86_64-pc-linux-gnu/10.2.0/cc1plus’: execv: Argument list too long
@@ -617,15 +619,15 @@ def main():
 
     cppc = meson.get_compiler('cpp')
 
-    add_project_arguments('-DWM_LABEL_SIZE='+get_option('WM_LABEL_SIZE'), language : 'cpp')
-    add_project_arguments('-DWM_ARCH='+get_option('WM_ARCH'), language : 'cpp')
-    add_project_arguments('-DWM_DP', language : 'cpp')
-    add_project_arguments('-DNoRepository', language : 'cpp')
-    add_project_arguments('-DOPENFOAM=2006', language : 'cpp')
-    add_project_arguments('-DOMPI_SKIP_MPICXX', language : 'cpp')
-    add_project_arguments('-ftemplate-depth-100', language : 'cpp')
+    add_project_arguments('-DWM_LABEL_SIZE='+get_option('WM_LABEL_SIZE'), language : ['c', 'cpp'])
+    add_project_arguments('-DWM_ARCH='+get_option('WM_ARCH'), language : ['c', 'cpp'])
+    add_project_arguments('-DWM_DP', language : ['c', 'cpp'])
+    add_project_arguments('-DNoRepository', language : ['c', 'cpp'])
+    add_project_arguments('-DOPENFOAM=2006', language : ['c', 'cpp'])
+    add_project_arguments('-DOMPI_SKIP_MPICXX', language : ['c', 'cpp'])
+    add_project_arguments('-ftemplate-depth-100', language : ['c', 'cpp'])
     add_project_arguments('-m64', language : ['c', 'cpp'])
-    add_project_link_arguments('-Wl,--add-needed', language : 'cpp')
+    add_project_link_arguments('-Wl,--add-needed', language : ['c', 'cpp'])
     if cppc.get_id() == 'gcc'
         add_project_arguments('-DWM_COMPILER="Gcc"', language : 'cpp')
     elif cppc.get_id() == 'clang'
@@ -634,12 +636,14 @@ def main():
         error('Unknown Compiler. I do not know what to fill in here for the dots: -DWM_COMPILER="..."')
     endif
     if get_option('debug')
+        add_project_arguments('-DWM_COMPILE_OPTION=Debug', language : ['c', 'cpp'])
         add_project_arguments('-DFULLDEBUG', language : ['c', 'cpp'])
-        add_project_arguments('-Wfatal-errors', language : 'cpp')
+        add_project_arguments('-Wfatal-errors', language : ['c', 'cpp'])
         add_project_arguments('-fdefault-inline', language : ['c', 'cpp'])
-        add_project_arguments('-finline-functions', language : 'c')
+        add_project_arguments('-finline-functions', language : ['c', 'cpp'])
     else
-        add_project_arguments('-frounding-math', language : 'cpp')
+        add_project_arguments('-DWM_COMPILE_OPTION=Opt', language : ['c', 'cpp'])
+        add_project_arguments('-frounding-math', language : ['c', 'cpp'])
     endif
 
     foamConfig_cpp = custom_target('foamConfig.cpp',
@@ -715,6 +719,27 @@ def main():
         )
         totdesc.explainatory_helper()
         return
+
+    # todo special
+    # There is a nameclash problem: Without this hacky mitigation
+    # here, the build will fail:
+    # applications/utilities/mesh/generation/extrude2DMesh/extrude2DMesh/meson.build
+    # writes a library to
+    # builddir/applications/utilities/mesh/generation/extrude2DMesh/extrude2DMesh/libextrude2DMesh.so
+    # . That means that the directory
+    # builddir/applications/utilities/mesh/generation/extrude2DMesh/extrude2DMesh/
+    # will be created. Later,
+    # applications/utilities/mesh/generation/extrude2DMesh/meson.build
+    # will try write an executable to
+    # builddir/applications/utilities/mesh/generation/extrude2DMesh/extrude2DMesh
+    # but will fail, because you cannot write to a filepath if this
+    # filepath is an existing directory.
+    # This could be considered a bug in meson, but meson (probably)
+    # will not fix this:
+    # https://github.com/mesonbuild/meson/issues/8752
+    totdesc.elements["exe_extrude2DMesh"].ideal = Path(
+        "applications/utilities/mesh"
+    ).parts
 
     # Without these fixes, grouping cannot be done
 
