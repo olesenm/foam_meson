@@ -5,7 +5,7 @@
 # it and puts symlinks to every C/C++ source file inside this lnInclude folder.
 # Example:
 # Before
-# ```
+# ``` #todo: update the docs here
 # $ tree
 # .
 # └── mydir
@@ -56,7 +56,10 @@
 from os import path, listdir, walk, symlink, unlink, readlink
 import os
 import pprint
+import subprocess
 import pathlib
+from pathlib import Path
+from gitignore_parser import parse_gitignore
 
 source_file_endings = ["hpp", "cpp", "H", "C", "h", "C"]
 
@@ -69,10 +72,10 @@ def gen_symlink_list(input, output):
             continue
         if "lnInclude" in pathlib.Path(entries[0]).parts:
             continue
-        for fp in entries[2]:
-            if "." in fp and fp.split(".")[-1] in source_file_endings:
-                symlink_to = path.relpath(path.join(entries[0], fp), start=output)
-                symlink_from = path.join(output, fp)
+        for fname in entries[2]:
+            if "." in fname and fname.split(".")[-1] in source_file_endings:
+                symlink_to = path.relpath(path.join(entries[0], fname), start=output)
+                symlink_from = path.join(output, fname)
                 symlinks.append((symlink_from, symlink_to))
     return symlinks
 
@@ -98,33 +101,66 @@ def symlink_list_conflicts(symlinks):
     return ret
 
 
+# todo: document this
+def remove_symlink_duplicates(symlinks):
+    froms = [el[0] for el in symlinks]
+    fromset = set(froms)
+    # This early return gives us a small performance boost
+    if len(froms) == len(fromset):
+        return symlinks
+
+    for symlink_from in fromset:
+        ar = [el for el in symlinks if el[0] == symlink_from]
+        assert len(ar) >= 1
+        if len(ar) > 1:
+            for el in ar:
+                symlinks.remove(el)
+
+
 def create_symlinks(symlinks):
     for (symlink_from, symlink_to) in symlinks:
         if os.path.exists(symlink_from):
-            assert readlink(symlink_from) == symlink_to
+            TODO = True  # see https://develop.openfoam.com/Development/openfoam/-/issues/2520
+            assert TODO or readlink(symlink_from) == symlink_to
         else:
             symlink(symlink_to, symlink_from)
 
 
-def gen_lnInclude(topdir):
+def gen_lnInclude(gitignore, topdir):
     for entries in walk(topdir, topdown=False):
-        if "Make" in entries[1]:
-            assert not entries[0].endswith("lnInclude")
-            output = path.join(entries[0], "lnInclude")
-            symlinks = gen_symlink_list(entries[0], output)
-            conflicts = symlink_list_conflicts(symlinks)
-            if len(conflicts) == 0:
-                if not os.path.exists(output):
-                    os.mkdir(output)
-                create_symlinks(symlinks)
-            else:
-                print(f"Warning: Unable to generate {output} due to conflicts:")
-                for (symlink_from, ar) in conflicts.items():
-                    print(
-                        f"\tTo which one of the following files should the symlink at {symlink_from} point to?"
-                    )
-                    for symlink_to in ar:
-                        print("\t\t", symlink_to)
+        if "lnInclude" in Path(entries[0]).parts:
+            continue
+        if gitignore(entries[0]):  # To remove noisy empty directory creations
+            continue
+        output = path.join(entries[0], "lnInclude")
+        symlinks = gen_symlink_list(entries[0], output)
+        remove_symlink_duplicates(symlinks)
+        conflicts = symlink_list_conflicts(symlinks)
+        TODO = (
+            True  # see https://develop.openfoam.com/Development/openfoam/-/issues/2520
+        )
+        if TODO or len(conflicts) == 0:
+            # len(symlinks) != 0 is there to remove noisy empty directory creations
+            if not os.path.exists(output) and len(symlinks) != 0:
+                os.mkdir(output)
+            create_symlinks(symlinks)
+        else:
+            print(f"Warning: Unable to generate {output} due to conflicts:")
+            for (symlink_from, ar) in conflicts.items():
+                print(
+                    f"\tTo which one of the following files should the symlink at {symlink_from} point to?"
+                )
+                for symlink_to in ar:
+                    print("\t\t", symlink_to)
 
 
-gen_lnInclude(".")
+def find_and_parse_gitignore_file():
+    fp = Path(".gitignore")
+    while True:
+        if os.path.exists(fp):
+            return parse_gitignore(fp)
+        fp = ".." / fp
+
+
+gitignore = find_and_parse_gitignore_file()
+gen_lnInclude(gitignore, ".")

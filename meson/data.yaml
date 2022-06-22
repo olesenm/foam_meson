@@ -5,6 +5,8 @@
 broken_dirs:
   - applications/test/00-dummy/dummy
   - applications/test/rigidBodyDynamics/spring
+  - applications/test/coordinateSystem
+  - applications/test/labelRanges
   - applications/utilities/mesh/generation/foamyMesh/foamyQuadMesh
   - applications/utilities/mesh/generation/foamyMesh/foamyHexMesh
   - applications/utilities/mesh/generation/foamyMesh/cellSizeAndAlignmentGrid
@@ -26,7 +28,6 @@ ignored_dirs:
   - applications/utilities/parallelProcessing/decomposePar # Needs to be linked with kahipDecomp which is broken
   - applications/utilities/mesh/generation/snappyHexMesh # Needs to be linked with kahipDecomp which is broken
   - applications/utilities/mesh/manipulation/renumberMesh # Needs to be linked with kahipDecomp which is broken
-
 
   - applications/utilities/mesh/conversion/ccm/foamToCcm # Needs to be linked with ccm which is broken
   - applications/utilities/mesh/conversion/ccm/ccmToFoam # Needs to be linked with ccm which is broken

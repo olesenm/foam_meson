@@ -180,7 +180,7 @@ def group_full_dirs(srcfiles):
         srcfiles.append(
             "run_command(meson.source_root() + '/meson/rec_C.sh', '<PATH>"
             + dirn
-            + "</PATH>').stdout().strip().split('\\n')"
+            + "</PATH>', check: true).stdout().strip().split('\\n')"
         )
 
     ret = []
@@ -213,7 +213,7 @@ def wmake_to_meson(totdesc, dirpath, stage):
         incdirs.append(
             "run_command(meson.source_root() + '/meson/rec_dirs.sh', '<PATH>"
             + str(PROJECT_ROOT / "src/OpenFOAM")
-            + "</PATH>').stdout().strip().split('\\n')"
+            + "</PATH>', check: true).stdout().strip().split('\\n')"
         )
     incdirs.append("'<PATH>" + str(PROJECT_ROOT / thisdir) + "</PATH>'")
     inckey = None
@@ -270,7 +270,7 @@ def wmake_to_meson(totdesc, dirpath, stage):
                         incdirs.append(
                             "run_command(meson.source_root() + '/meson/rec_dirs.sh', '<PATH>"
                             + recdir
-                            + "</PATH>').stdout().strip().split('\\n')"
+                            + "</PATH>', check: true).stdout().strip().split('\\n')"
                         )
                     else:
                         print(
@@ -299,7 +299,7 @@ def wmake_to_meson(totdesc, dirpath, stage):
         incdirs.append(
             "run_command(meson.source_root() + '/meson/rec_dirs.sh', '<PATH>"
             + str(PROJECT_ROOT / thisdir)
-            + "</PATH>').stdout().strip().split('\\n')"
+            + "</PATH>', check: true).stdout().strip().split('\\n')"
         )
 
     order_depends = []
@@ -361,9 +361,9 @@ def wmake_to_meson(totdesc, dirpath, stage):
     try:
         template_end = ""
         vardict = {}
-        # todo: set the CORRECT WM_LABEL_SIZE and WM_DP and OPENFOAM here
+        # todo: set the CORRECT WM_LABEL_SIZE and WM_DP and WM_ARC and OPENFOAM here
         preprocessed = subprocess.check_output(
-            "cpp -traditional-cpp -DOPENFOAM=2006 -DWM_DP -DWM_LABEL_SIZE=32 "
+            "cpp -traditional-cpp -DOPENFOAM=2006 -DWM_DP -DWM_LABEL_SIZE=32 -DWM_ARCH=linux64 "
             + path.join(dirpath, "files"),
             shell=True,
         ).decode()
@@ -385,7 +385,7 @@ def wmake_to_meson(totdesc, dirpath, stage):
                 template_end += (
                     provides
                     + " = executable('"
-                    + line
+                    + mangle_name(line)
                     + "', srcfiles, include_directories: incdirs, link_with: link_with, dependencies: dependencies, install: true)\n"
                 )
                 assert order_provides is None
@@ -415,7 +415,7 @@ def wmake_to_meson(totdesc, dirpath, stage):
                 template_end += (
                     provides
                     + " = library('"
-                    + line
+                    + mangle_name(line)
                     + "', srcfiles, include_directories: incdirs, link_with: link_with, dependencies: dependencies, install: true)\n"
                 )
                 assert order_provides is None
@@ -495,7 +495,7 @@ def wmake_to_meson(totdesc, dirpath, stage):
             incdirs.append(
                 "run_command(meson.source_root() + '/meson/rec_dirs.sh', '<PATH>"
                 + str(ROOT_PATH)
-                + "/src/OSspecific/POSIX</PATH>').stdout().strip().split('\\n')"
+                + "/src/OSspecific/POSIX</PATH>', check: true).stdout().strip().split('\\n')"
             )
 
         if "CGAL" in specials:
@@ -615,8 +615,10 @@ def main():
     project('OpenFOAM', 'c', 'cpp',
     default_options : ['warning_level=0', 'b_lundef=false', 'b_asneeded=false'])
 
+    cppc = meson.get_compiler('cpp')
+
     add_project_arguments('-DWM_LABEL_SIZE='+get_option('WM_LABEL_SIZE'), language : 'cpp')
-    add_project_arguments('-Wfatal-errors', language : 'cpp')
+    add_project_arguments('-DWM_ARCH='+get_option('WM_ARCH'), language : 'cpp')
     add_project_arguments('-DWM_DP', language : 'cpp')
     add_project_arguments('-DNoRepository', language : 'cpp')
     add_project_arguments('-DOPENFOAM=2006', language : 'cpp')
@@ -624,12 +626,20 @@ def main():
     add_project_arguments('-ftemplate-depth-100', language : 'cpp')
     add_project_arguments('-m64', language : ['c', 'cpp'])
     add_project_link_arguments('-Wl,--add-needed', language : 'cpp')
-    if get_option('debug')
-    add_project_arguments('-DFULLDEBUG', language : ['c', 'cpp'])
-    add_project_arguments('-fdefault-inline', language : ['c', 'cpp'])
-    add_project_arguments('-finline-functions', language : 'c')
+    if cppc.get_id() == 'gcc'
+        add_project_arguments('-DWM_COMPILER="Gcc"', language : 'cpp')
+    elif cppc.get_id() == 'clang'
+        add_project_arguments('-DWM_COMPILER="Clang"', language : 'cpp')
     else
-    add_project_arguments('-frounding-math', language : 'cpp')
+        error('Unknown Compiler. I do not know what to fill in here for the dots: -DWM_COMPILER="..."')
+    endif
+    if get_option('debug')
+        add_project_arguments('-DFULLDEBUG', language : ['c', 'cpp'])
+        add_project_arguments('-Wfatal-errors', language : 'cpp')
+        add_project_arguments('-fdefault-inline', language : ['c', 'cpp'])
+        add_project_arguments('-finline-functions', language : 'c')
+    else
+        add_project_arguments('-frounding-math', language : 'cpp')
     endif
 
     foamConfig_cpp = custom_target('foamConfig.cpp',
@@ -638,7 +648,6 @@ def main():
     command : [meson.source_root() / 'meson' / 'set_versions_in_foamConfig_Cver.sh', meson.source_root(), '@OUTPUT@'])
     #todo: what if src/bashrc is the wrong script to source?
 
-    cppc = meson.get_compiler('cpp')
     m_dep = cppc.find_library('m')
     dl_dep = cppc.find_library('dl')
     z_dep = cppc.find_library('z')
@@ -653,8 +662,8 @@ def main():
     thread_dep = dependency('threads')
 
     if not cgal_dep.found()
-    # applications/utilities/surface/surfaceBooleanFeatures and applications/utilities/surface/surfaceBooleanFeatures/PolyhedronReader are the only directories that needs this flag, but a global argument seems nicer
-    add_project_arguments('-DNO_CGAL', language : 'cpp')
+        # applications/utilities/surface/surfaceBooleanFeatures and applications/utilities/surface/surfaceBooleanFeatures/PolyhedronReader are the only directories that needs this flag, but a global argument seems nicer
+        add_project_arguments('-DNO_CGAL', language : 'cpp')
     endif
 
     lemonbin = executable('lemon', 'wmake/src/lemon.c', native: true)
