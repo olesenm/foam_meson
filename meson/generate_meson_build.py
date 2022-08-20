@@ -2,6 +2,8 @@
 
 # todo: Doxygen
 
+# todo: unisntall cgal and kahip and check if the build still works
+
 # todo doc reference
 # If USING_LNINCLUDE = False, then we run into this problem:
 # c++: fatal error: cannot execute ‘/usr/lib/gcc/x86_64-pc-linux-gnu/10.2.0/cc1plus’: execv: Argument list too long
@@ -346,15 +348,24 @@ def wmake_to_meson(totdesc, dirpath, stage):
                 continue
 
             el = remove_prefix(el, "-l")
-            if el == "boost_system":  # todo special
-                dependencies.append("boost_system_dep")
-            elif el == "fftw3":
-                dependencies.append("fftw3_dep")
-            elif el == "mpi":
-                dependencies.append("mpi_dep")
-            elif el == "z":
-                dependencies.append("z_dep")
-            else:
+            # todo special
+            flag = True
+            for lib in [
+                "boost_system",
+                "fftw3",
+                "mpi",
+                "z",
+                "CGAL",
+                "mpfr",
+                "gmp",
+                "kahip",
+                "metis",
+                "scotch",
+            ]:
+                if el == lib:
+                    dependencies.append(lib.lower() + "_dep")
+                    flag = False
+            if flag and el not in ["scotcherrexit", "ptscotch", "ptscotcherrexit"]:
                 order_depends.append("lib_" + mangle_name(el))
     order_provides = None
     group_srcs = []
@@ -617,6 +628,8 @@ def main():
     project('OpenFOAM', 'c', 'cpp',
     default_options : ['warning_level=0', 'b_lundef=false', 'b_asneeded=false'])
 
+    cmake = import('cmake')
+
     cppc = meson.get_compiler('cpp')
 
     add_project_arguments('-DWM_LABEL_SIZE='+get_option('WM_LABEL_SIZE'), language : ['c', 'cpp'])
@@ -636,13 +649,13 @@ def main():
         error('Unknown Compiler. I do not know what to fill in here for the dots: -DWM_COMPILER="..."')
     endif
     if get_option('debug')
-        add_project_arguments('-DWM_COMPILE_OPTION=Debug', language : ['c', 'cpp'])
+        add_project_arguments('-DWM_COMPILE_OPTION="Debug"', language : ['c', 'cpp'])
         add_project_arguments('-DFULLDEBUG', language : ['c', 'cpp'])
         add_project_arguments('-Wfatal-errors', language : ['c', 'cpp'])
         add_project_arguments('-fdefault-inline', language : ['c', 'cpp'])
         add_project_arguments('-finline-functions', language : ['c', 'cpp'])
     else
-        add_project_arguments('-DWM_COMPILE_OPTION=Opt', language : ['c', 'cpp'])
+        add_project_arguments('-DWM_COMPILE_OPTION="Opt"', language : ['c', 'cpp'])
         add_project_arguments('-frounding-math', language : ['c', 'cpp'])
     endif
 
@@ -652,18 +665,25 @@ def main():
     command : [meson.source_root() / 'meson' / 'set_versions_in_foamConfig_Cver.sh', meson.source_root(), '@OUTPUT@'])
     #todo: what if src/bashrc is the wrong script to source?
 
+    # todo: what is the difference between cppc.find_library(...) and dependency(...) ?
+
     m_dep = cppc.find_library('m')
     dl_dep = cppc.find_library('dl')
     z_dep = cppc.find_library('z')
 
-    cgal_dep = cppc.find_library('CGAL', required: false)
     mpfr_dep = cppc.find_library('mpfr', required: false)
     gmp_dep = cppc.find_library('gmp', required: false)
+    kahip_dep = cppc.find_library('kahip', required: false)
+    metis_dep = cppc.find_library('metis', required: false)
 
     boost_system_dep = dependency('boost', modules : ['system'])
     fftw3_dep = dependency('fftw3')
     mpi_dep = dependency('mpi')
     thread_dep = dependency('threads')
+    cgal_dep = dependency('CGAL', required: false)
+
+    scotch_pro = cmake.subproject('scotch')
+    scotch_dep = scotch_pro.dependency('scotch', include_type: 'system') #todo: is 'system' correct?
 
     if not cgal_dep.found()
         # applications/utilities/surface/surfaceBooleanFeatures and applications/utilities/surface/surfaceBooleanFeatures/PolyhedronReader are the only directories that needs this flag, but a global argument seems nicer

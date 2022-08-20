@@ -15,7 +15,7 @@ Note that `source etc/bashrc` is only needed for `meson/generate_meson_build.py`
 
 - `meson compile -C builddir` needs to be executed if you change a `*.C` or `*.H` file.
 - `rm -r builddir; meson setup builddir` needs to be executed if you change something about your OS.
-- `meson/generate_meson_build.py` needs to be executed if you change `.../Make/options` or `.../Make/files` or you you add a new `*.C` or `*.H` file.
+- `meson/generate_meson_build.py` needs to be executed if you change `.../Make/options` or `.../Make/files`.
 - `meson/generate_lnInclude.py` needs to be executed if you add a new `*.C` or `*.H` file.
 
 

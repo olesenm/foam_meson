@@ -20,7 +20,6 @@ def remove_prefix(line, search):
     line = line[len(search) :]
     return line.lstrip()
 
-
 def remove_suffix(line, search):
     assert line.endswith(search), line + " -----  " + search
     line = line[: -len(search)]

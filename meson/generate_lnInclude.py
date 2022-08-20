@@ -53,6 +53,8 @@
 # Tip: Use this to remove all the lnInclude directories:
 # find -name lnInclude -exec rm -r {} \;
 
+# todo: ignore .ccls-cache
+
 from os import path, listdir, walk, symlink, unlink, readlink
 import os
 import pprint
@@ -61,7 +63,7 @@ import pathlib
 from pathlib import Path
 from gitignore_parser import parse_gitignore
 
-source_file_endings = ["hpp", "cpp", "H", "C", "h", "C"]
+source_file_endings = ["hpp", "cpp", "hxx", "cxx", "H", "C", "h", "c"]
 
 # Generates the list of symlinks that should exist.
 def gen_symlink_list(input, output):
