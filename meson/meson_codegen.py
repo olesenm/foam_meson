@@ -9,6 +9,7 @@ import copy
 import graphlib
 from collections import defaultdict
 from pathlib import Path
+import typing as T
 
 dryrun = False
 if dryrun:
@@ -19,6 +20,7 @@ def remove_prefix(line, search):
     assert line.startswith(search), line + " -----  " + search
     line = line[len(search) :]
     return line.lstrip()
+
 
 def remove_suffix(line, search):
     assert line.endswith(search), line + " -----  " + search
@@ -122,7 +124,9 @@ class BuildDesc:
         assert path.is_absolute()
         self.custom_prefixes[path] = custom
 
-    def add_template(self, provides, depends, template, ideal_path, debuginfo):
+    def add_template(
+        self, provides: str, depends: T.List[str], template, ideal_path, debuginfo
+    ):
         ideal = os.path.normpath(ideal_path)
         ideal = remove_prefix(ideal, str(self.root))
         assert len(ideal) == 0 or ideal[0] == os.path.sep
@@ -228,7 +232,6 @@ class BuildDesc:
                 if pkey not in mixed_deps:
                     mixed_deps[pkey] = set()
                 mixed_deps[pkey].update(self.generalised_deps(subgroup, el))
-
         ts = graphlib.TopologicalSorter(mixed_deps)
         try:
             order = tuple(ts.static_order())
@@ -300,6 +303,7 @@ class BuildDesc:
         for dir in entries:
             self.writer_recursion(generated_files, subgroup + [dir])
 
+    # todo: verify that this will never write outside of the project directory
     def writeToFileSystem(self):
         generated_files = {}
         self.writer_recursion(generated_files, [])

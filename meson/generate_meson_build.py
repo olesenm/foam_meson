@@ -5,9 +5,13 @@
 # todo: unisntall cgal and kahip and check if the build still works
 
 # todo doc reference
-# If USING_LNINCLUDE = False, then we run into this problem:
+# If INCLUDE_METHOD = "SINGLE", then we run into this problem:
 # c++: fatal error: cannot execute ‘/usr/lib/gcc/x86_64-pc-linux-gnu/10.2.0/cc1plus’: execv: Argument list too long
-USING_LNINCLUDE = True
+
+# BUILD_LN
+# PREBUILD_LN
+# SINGLE
+INCLUDE_METHOD = "BUILD_LN"
 GROUP_FULL_DIRS = True
 EXPLAIN_CODEGEN = False
 CACHE_TOTDESC = False  # Only enable this if you are know what you are doing
@@ -21,15 +25,21 @@ import sys
 import textwrap
 import tempfile
 import yaml
+import pdb
 
 
 def from_this_directory():
     os.chdir(path.dirname(sys.argv[0]))
 
 
+ROOT_PATH = os.getcwd()
+PROJECT_ROOT = Path(ROOT_PATH)
+
 from_this_directory()
 os.chdir("..")
 assert os.environ["WM_PROJECT_DIR"] != "", "Did you forget sourcing etc/bashrc?"
+
+lnIncludes_to_be_generated = set([])
 
 # todo
 
@@ -138,10 +148,6 @@ def substitute(vardict, cur):
     return cur
 
 
-ROOT_PATH = os.getcwd()
-PROJECT_ROOT = Path(ROOT_PATH)
-
-
 def are_all_files_included(srcfiles, dirname):
     reclist = set()
     for f in Path(dirname).glob("**/*.C"):
@@ -153,6 +159,7 @@ def are_all_files_included(srcfiles, dirname):
     return True, reclist
 
 
+# todo: If you add a new file and touch meson.build this function will not be run. Is this ok?
 def group_full_dirs(srcfiles):
     recdirs = []
     totreclist = set()
@@ -201,6 +208,12 @@ def mangle_name(name):
 
 # TODO Aren't global mutable variables evil?
 lib_paths = {}
+used_lnIncludes = set(
+    [
+        str(PROJECT_ROOT / "src" / "OpenFOAM" / "lnInclude"),
+        str(PROJECT_ROOT / "src" / "OSspecific" / "POSIX" / "lnInclude"),
+    ]
+)
 
 
 def wmake_to_meson(totdesc, dirpath, stage):
@@ -209,11 +222,11 @@ def wmake_to_meson(totdesc, dirpath, stage):
     statements, optionsdict, specials = parse_file(path.join(dirpath, "options"))
     template = ""
     incdirs = []
-    if USING_LNINCLUDE:
+    if INCLUDE_METHOD == "PREBUILD_LN":
         incdirs.append(
             "'<PATH>" + str(PROJECT_ROOT / "src/OpenFOAM/lnInclude") + "</PATH>'"
         )
-    else:
+    elif INCLUDE_METHOD == "SINGLE":
         incdirs.append(
             "run_command(meson.source_root() + '/meson/rec_dirs.sh', '<PATH>"
             + str(PROJECT_ROOT / "src/OpenFOAM")
@@ -236,6 +249,7 @@ def wmake_to_meson(totdesc, dirpath, stage):
             + arg
         )
 
+    order_depends = ["lnInc_src_slash_OpenFOAM"]
     if inckey is not None:
         for arg in optionsdict[inckey].split(" "):
             el = arg.lstrip()
@@ -252,11 +266,31 @@ def wmake_to_meson(totdesc, dirpath, stage):
             else:
                 abspath = PROJECT_ROOT / thisdir / el
 
-            if str(abspath).endswith("lnInclude"):
+            if str(abspath).endswith("/lnInclude"):
                 recdir = os.path.normpath(str(abspath / ".."))
-                if USING_LNINCLUDE:
+                if INCLUDE_METHOD == "BUILD_LN":
+                    if recdir + "/lnInclude" in lnIncludes_to_be_generated:
+                        used_lnIncludes.add(os.path.normpath(str(abspath)))
+                        x = "lnInc_" + mangle_name(
+                            remove_prefix(recdir, str(PROJECT_ROOT) + "/")
+                        )
+                        assert (
+                            x
+                            != "lnInc_applications_slash_solvers_slash_stressAnalysis_slash_solidDisplacementFoam_slash_tractionDisplacement"
+                        )
+                        order_depends.append(
+                            "lnInc_"
+                            + mangle_name(
+                                remove_prefix(recdir, str(PROJECT_ROOT) + "/")
+                            )
+                        )
+                    else:
+                        # todo: warning
+                        pass
+                elif INCLUDE_METHOD == "PREBUILD_LN":
                     if path.exists(str(abspath)):
                         incdirs.append("'<PATH>" + str(abspath) + "</PATH>'")
+                        raise ValueError
                     else:
                         pass
                         # TODO:
@@ -269,7 +303,7 @@ def wmake_to_meson(totdesc, dirpath, stage):
                         #     "does not exist",
                         # )
                         # show_debugging_help(arg)
-                else:
+                elif INCLUDE_METHOD == "SINGLE":
                     if path.exists(recdir):
                         incdirs.append(
                             "run_command(meson.source_root() + '/meson/rec_dirs.sh', '<PATH>"
@@ -294,19 +328,21 @@ def wmake_to_meson(totdesc, dirpath, stage):
                         "does not exist",
                     )
                     show_debugging_help(arg)
-    if USING_LNINCLUDE:
+    if INCLUDE_METHOD == "PREBUILD_LN":
+        used_lnIncludes.add(os.path.normpath(str(PROJECT_ROOT / thisdir / "lnInclude")))
         if path.exists(dirpath + "/../" + "lnInclude"):
             incdirs.append(
                 "'<PATH>" + str(PROJECT_ROOT / thisdir / "lnInclude") + "</PATH>'"
             )
-    else:
+    elif INCLUDE_METHOD == "SINGLE":
         incdirs.append(
             "run_command(meson.source_root() + '/meson/rec_dirs.sh', '<PATH>"
             + str(PROJECT_ROOT / thisdir)
             + "</PATH>', check: true).stdout().strip().split('\\n')"
         )
+    elif INCLUDE_METHOD == "BUILD_LN":
+        order_depends.append("lnInc_" + mangle_name(thisdir))
 
-    order_depends = []
     dependencies = []
     libkey = None
     if "$(EXE_LIBS)" in optionsdict:
@@ -449,7 +485,9 @@ def wmake_to_meson(totdesc, dirpath, stage):
                         + "_cpp = custom_target('"
                         + name
                         + "_cpp', input: '"
-                        + line
+                        + "<PATH>"
+                        + str(PROJECT_ROOT / thisdir / line.rstrip())
+                        + "</PATH>"
                         + "', output : '"
                         + remove_suffix(line.split("/")[-1], ".lyy-m4")
                         + ".cc', \n command: [m4lemon, meson.source_root(), '<PATH>"
@@ -500,16 +538,18 @@ def wmake_to_meson(totdesc, dirpath, stage):
             if not srcfiles[i].startswith("run_command("):
                 srcfiles[i] = "'<PATH>" + srcfiles[i] + "</PATH>'"
 
-        if USING_LNINCLUDE:
+        if INCLUDE_METHOD == "PREBUILD_LN":
             incdirs.append(
                 "'<PATH>" + str(ROOT_PATH) + "/src/OSspecific/POSIX/lnInclude</PATH>'"
             )
-        else:
+        elif INCLUDE_METHOD == "SINGLE":
             incdirs.append(
                 "run_command(meson.source_root() + '/meson/rec_dirs.sh', '<PATH>"
                 + str(ROOT_PATH)
                 + "/src/OSspecific/POSIX</PATH>', check: true).stdout().strip().split('\\n')"
             )
+        elif INCLUDE_METHOD == "BUILD_LN":
+            order_depends.append("lnInc_src_slash_OSspecific_slash_POSIX")
 
         if "CGAL" in specials:
             dependencies.append("cgal_dep")
@@ -523,18 +563,24 @@ def wmake_to_meson(totdesc, dirpath, stage):
             + addspace
             + ")\n"
         )
-        addspace = "\n    " if len(gen_sources) > 0 else ""
+
+        headers = [el + "[0]" for el in order_depends if el.startswith("lnInc_")]
+        addcomma = ",\n    " if len(gen_sources) > 0 else ""
+        header_addspace = "\n    " if len(headers) > 0 else ""
         template += (
             "srcfiles = [ files(\n    "
             + ",\n    ".join(srcfiles)
             + "),\n    "
             + ",\n    ".join(gen_sources)
-            + addspace
+            + addcomma
+            + ",\n    ".join(headers)
+            + header_addspace
             + "]\n"
         )
         addspace = "\n    " if len(order_depends) > 0 else ""
+        linkdepend = [el for el in order_depends if not el.startswith("lnInc_")]
         template += (
-            "link_with = [\n    " + ",\n    ".join(order_depends) + addspace + "]\n"
+            "link_with = [\n    " + ",\n    ".join(linkdepend) + addspace + "]\n"
         )
         addspace = "\n    " if len(dependencies) > 0 else ""
         template += (
@@ -624,11 +670,35 @@ def parse_file(fp):
 
 
 def main():
+    hardcoded = [
+        "src/mesh/blockMesh",
+        "src/parallel/decompose/decompositionMethods",
+        "src/parallel/decompose/kahipDecomp",
+        "src/parallel/decompose/metisDecomp",
+        "src/parallel/decompose/scotchDecomp",
+        "src/parallel/decompose/ptscotchDecomp",
+        "src/TurbulenceModels/phaseIncompressible",
+        "src/TurbulenceModels/phaseCompressible",
+        "src/thermophysicalModels/thermophysicalProperties",
+        "src/OpenFOAM",
+        "src/OSspecific/POSIX",
+        "src/fvOptions",
+        "src/regionFaModels",
+        "src/faOptions",
+    ]  # Found using rg wmakeLnInclude
+    for el in hardcoded:
+        lnIncludes_to_be_generated.add(str(PROJECT_ROOT) + "/" + el + "/lnInclude")
+    for el in Path(".").rglob("Make"):
+        el = remove_suffix(str(el), "/Make")
+        lnIncludes_to_be_generated.add(str(PROJECT_ROOT) + "/" + el + "/lnInclude")
+
+    global used_lnIncludes
     mainsrc = """
     project('OpenFOAM', 'c', 'cpp',
     default_options : ['warning_level=0', 'b_lundef=false', 'b_asneeded=false'])
 
     cmake = import('cmake')
+    fs = import('fs')
 
     cppc = meson.get_compiler('cpp')
 
@@ -713,7 +783,7 @@ def main():
     m4lemon = find_program('meson/m4lemon.sh')
     """
 
-    CACHE_TOTDESC = False
+    CACHE_TOTDESC = True
 
     if not CACHE_TOTDESC or not os.path.exists("totdesc_cache"):
         with open("meson/data.yaml", "r") as stream:
@@ -725,11 +795,51 @@ def main():
         import pickle
 
     if CACHE_TOTDESC and os.path.exists("totdesc_cache"):
-        totdesc = pickle.load(open("totdesc_cache", "rb"))
+        totdesc, used_lnIncludes = pickle.load(open("totdesc_cache", "rb"))
 
     if CACHE_TOTDESC and not os.path.exists("totdesc_cache"):
         with open("totdesc_cache", "wb") as pfile:
-            pickle.dump(totdesc, pfile)
+            pickle.dump((totdesc, used_lnIncludes), pfile)
+
+    for path in lnIncludes_to_be_generated:
+        path = os.path.normpath(path)
+        path = remove_suffix(path, "/lnInclude")
+        assert os.path.exists(path)
+        if not os.path.exists(path):
+            print(f"warning: {path} does not exist")
+            continue
+        name = "lnInc_" + mangle_name(remove_prefix(path, str(PROJECT_ROOT) + "/"))
+        # linkpaths = run_command(meson.source_root() + '/meson/rec_CH.sh', '<PATH>.</PATH>', check: true).stdout().strip().split('\\n')
+        # linknames = []
+        # foreach fp : linkpaths
+        #     name = fs.name(fp)
+        #     if not (name in linknames)
+        #         linknames += name
+        #     else
+        #         warning('multiple symlinks want to be created at the same location: ' + name)
+        #     endif
+        # endforeach
+        # {name} = custom_target(
+        #     #input: linkpaths,
+        #     output: linknames,
+        #     command: [meson.source_root() / 'meson' / 'symlink_creator.sh', meson.source_root(), meson.current_source_dir()])
+        temp = f"""
+        {name} = custom_target(
+            build_always_stale: true, #todo
+            output: 'fake.h', # we can remove all the [0]'s
+            command: [meson.source_root() / 'meson' / 'symlink_creator.sh', meson.source_root(), meson.current_source_dir()])
+        """
+        template = Template(temp)
+        template.make_absolute(Path(path))
+        template.assert_absolute()
+        template.cleanup()
+        totdesc.add_template(
+            name,
+            [],
+            template,
+            path,
+            None,
+        )
 
     totdesc.set_custom_prefix(PROJECT_ROOT / "meson.build", mainsrc)
 
@@ -776,6 +886,10 @@ def main():
     totdesc.elements["lib_liquidPropertiesFvPatchFields"].ideal = Path("src").parts
     totdesc.elements["lib_geometricVoF"].ideal = Path("src").parts
 
+    for key, value in totdesc.elements.items():
+        if not key.startswith("lnInc_"):
+            value.ideal = [value.ideal[0]]
+
     generated_files = totdesc.writeToFileSystem()
 
 
@@ -792,6 +906,12 @@ if __name__ == "__main__":
 #
 # if possible, check that it works on a second system and/or a second installation directory. To ensure we don't have hard-code paths lurking.
 #
-# Check if we are on windows in src/OSspecific/meson.buil
+# Check if we are on windows in src/OSspecific/meson.build
 #
 # Make a meson branch
+#
+# TODO: make sure everything gets installed at the same path as with wmake
+
+# todo: mv ~/Sync/git/openfoam some\ dir\ with\ spaces ; cd some\ dir\ with\ spaces ; meson setup builddir; ninja -C builddir
+
+# make sure build.ninja is rebuild if a .C file is added
