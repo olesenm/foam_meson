@@ -1,0 +1,437 @@
+#!/usr/bin/env false
+from os import path
+import re
+import tempfile
+import subprocess
+import pdb
+from pathlib import Path
+import pickle
+from dataclasses import dataclass
+import typing as T
+import os
+from meson_codegen import *
+from enum import Enum
+
+# Turns a string into a valid identifier that can be used as a variable name in meson.buil
+def mangle_name(name):
+    return name.replace("-", "_").replace("/", "_slash_")
+
+
+# Kind of broken since it does not hash the function arguments
+def disccache(original_func):
+    def new_func(*args, **kwargs):
+        fp = Path("disccache") / original_func.__name__
+        if fp.exists():
+            return pickle.load(open(fp, "rb"))
+        else:
+            ret = original_func(*args, **kwargs)
+            pickle.dump(ret, open(fp, "wb"))
+            return ret
+
+    return new_func
+
+
+# Find all directories that have a subdirectory called Make and are not marked as broken or ignored.
+@disccache
+def find_all_wmake_dirs(PROJECT_ROOT, yamldata):
+    broken_dirs = [PROJECT_ROOT / p for p in yamldata["broken_dirs"]]
+    ignored_dirs = [PROJECT_ROOT / p for p in yamldata["ignored_dirs"]]
+    ret = []
+    for el in PROJECT_ROOT.rglob("Make"):
+        if not path.isdir(el):
+            continue
+        el = el.parent
+        if "codeTemplates" in el.parts:  # todo: special
+            continue
+        if el in broken_dirs:
+            continue
+        if el in ignored_dirs:
+            continue
+        ret.append(el)
+    return ret
+
+
+# https://gist.github.com/ChunMinChang/88bfa5842396c1fbbc5b
+def commentRemover(text):
+    def replacer(match):
+        s = match.group(0)
+        if s.startswith("/"):
+            return " "  # note: a space and not an empty string
+        else:
+            return s
+
+    pattern = re.compile(
+        r'//.*?$|/\*.*?\*/|\'(?:\\.|[^\\\'])*\'|"(?:\\.|[^\\"])*"',
+        re.DOTALL | re.MULTILINE,
+    )
+    return re.sub(pattern, replacer, text)
+
+
+def parse_options_file(wmake_dir):
+    with open(wmake_dir / "Make" / "options") as infile:
+        makefilesource = infile.read()
+    specials = []
+    makefilesource = commentRemover(
+        makefilesource
+    )  # todo: do we need the commentremover?
+    if "include $(GENERAL_RULES)/CGAL" in makefilesource:
+        makefilesource = makefilesource.replace("include $(GENERAL_RULES)/CGAL", "")
+        specials.append("CGAL")
+    if "${CGAL_LIBS}" in makefilesource:  # todo: special
+        makefilesource = makefilesource.replace("${CGAL_LIBS}", "")
+        specials.append("CGAL")
+
+    vardict = {
+        "$(LIB_SRC)": path.relpath("src", wmake_dir),
+        "${LIB_SRC}": path.relpath("src", wmake_dir),
+        "$(FOAM_UTILITIES)": path.relpath("applications/utilities", wmake_dir),
+        "$(FOAM_SOLVERS)": path.relpath("applications/solvers", wmake_dir),
+        "POSIX_SRC_HACK": path.relpath("src/OSspecific/POSIX", wmake_dir),
+        "$(KAHIP_INC_DIR)": path.relpath(
+            "src/dummyThirdParty/kahipDecomp/lnInclude", wmake_dir
+        ),
+        # "$(OBJECTS_DIR)": path.relpath("build/linux64GccDPInt32Opt/src/OpenFOAM", wmake_dir), #todo: we should not rely on build/...
+        # "$(FOAM_LIBBIN)": path.relpath("platforms/linux64GccDPInt32Opt/lib", wmake_dir), #todo: we should not rely on platforms/...
+        "$(GENERAL_RULES)": "wmake/rules/General",
+    }
+
+    with tempfile.NamedTemporaryFile("w") as makeout:
+        for key in vardict:
+            makeout.write(key[2:-1] + "=" + vardict[key] + "\n")
+        makeout.write(makefilesource)
+        makeout.write(
+            "\nprint_stuff:\n\techo $(LIB_INC)\n\techo $(EXE_INC)\n\techo $(LIB_LIBS)\n\techo $(EXE_LIBS)\n"
+        )
+        makeout.flush()
+        vars = (
+            subprocess.check_output(
+                "make -s print_stuff --file " + makeout.name, shell=True
+            )
+            .decode()
+            .split("\n")
+        )
+    vardict["$(LIB_INC)"] = vars[0]
+    vardict["$(EXE_INC)"] = vars[1]
+    vardict["$(LIB_LIBS)"] = vars[2]
+    vardict["$(EXE_LIBS)"] = vars[3]
+    assert vars[0] == "" or vars[1] == ""
+    assert vars[2] == "" or vars[3] == ""
+    return vardict, specials
+
+
+@disccache
+def all_parse_options_file(wmake_dirs):
+    return {wmake_dir: parse_options_file(wmake_dir) for wmake_dir in wmake_dirs}
+
+
+class Include:
+    pass
+
+
+@dataclass
+class RecursiveInclude(Include):
+    path: Path
+
+
+@dataclass
+class NonRecursiveInclude(Include):
+    path: Path
+
+
+def preprocess_files_file(wmake_dir):
+    preprocessed = subprocess.check_output(
+        [
+            "cpp",
+            # "-traditional-cpp",
+            "-DOPENFOAM=2006",
+            "-DWM_DP",  # todo: set this correctly
+            wmake_dir / "Make" / "files",
+        ],
+    ).decode()
+    preprocessed = "\n".join(
+        [
+            line.rstrip()
+            for line in preprocessed.split("\n")
+            if not line.startswith("#") and not line.rstrip() == ""
+        ]
+    )
+    return preprocessed
+
+
+@disccache
+def all_preprocess_files_file(wmake_dirs):
+    return {wmake_dir: preprocess_files_file(wmake_dir) for wmake_dir in wmake_dirs}
+
+
+class TargetType(Enum):
+    exe = 1
+    lib = 2
+
+
+class GeneralizedSourcefile:
+    pass
+
+
+@dataclass
+class SimpleSourcefile(GeneralizedSourcefile):
+    path: Path
+
+
+@dataclass
+class FlexgenSourcefile(GeneralizedSourcefile):
+    path: Path
+
+
+@dataclass
+class LyyM4Sourcefile(GeneralizedSourcefile):
+    path: Path
+
+
+@dataclass
+class FoamConfigSourcefile(GeneralizedSourcefile):
+    pass
+
+
+# Todo: Check if name is unique
+@dataclass
+class Intermediate:
+    srcs: T.List[GeneralizedSourcefile]
+    varname: str
+    typ: TargetType
+
+
+def substitute(vardict, cur):
+    while True:
+        old = cur
+        for el in vardict:
+            cur = cur.replace(el, vardict[el])
+        if cur == old:
+            return cur
+
+
+def parse_files_file(PROJECT_ROOT, wmake_dir, preprocessed):
+    srcs = []
+    varname = None
+    typ = None
+    vardict = {}
+    for line in preprocessed.split("\n"):
+        if line.startswith("EXE"):
+            line = remove_prefix(line, "EXE")
+            line = remove_prefix(line, "=")
+            if line.startswith("$(FOAM_APPBIN)"):
+                line = remove_prefix(line, "$(FOAM_APPBIN)/")
+            elif line.startswith("$(FOAM_USER_APPBIN)"):
+                line = remove_prefix(line, "$(FOAM_USER_APPBIN)/")
+            else:
+                line = remove_prefix(line, "$(PWD)/")
+            assert "$" not in line
+            assert varname is None
+            varname = "exe_" + mangle_name(line)
+            typ = TargetType.exe
+        elif line.startswith("LIB"):
+            line = remove_prefix(line, "LIB")
+            line = remove_prefix(line, "=")
+            if line.startswith("$(FOAM_LIBBIN)/"):
+                line = remove_prefix(line, "$(FOAM_LIBBIN)/")
+            elif line.startswith("$(FOAM_MPI_LIBBIN)/"):
+                line = remove_prefix(line, "$(FOAM_MPI_LIBBIN)/")
+            else:
+                line = remove_prefix(line, "$(FOAM_USER_LIBBIN)/")
+            if line == "":
+                continue
+            line = "/".join(
+                line.split("/")[:-1] + [remove_prefix(line.split("/")[-1], "lib")]
+            )
+            assert "$" not in line
+            assert varname is None
+            varname = "lib_" + mangle_name(line)
+            typ = TargetType.lib
+        elif "=" in line:
+            ar = line.split("=")
+            assert len(ar) == 2, line
+            vardict["$(" + ar[0].rstrip() + ")"] = ar[1].strip()
+        elif " " not in line:
+            if line.endswith(".lyy-m4"):
+                line = substitute(vardict, line)
+                assert "$" not in line
+                srcs.append(LyyM4Sourcefile(PROJECT_ROOT / wmake_dir / line))
+            elif line.endswith(".L"):
+                assert "$" not in line
+                srcs.append(FlexgenSourcefile(PROJECT_ROOT / wmake_dir / line))
+            elif line == "global/foamConfig.Cver":  # todo special
+                srcs.append(FoamConfigSourcefile())
+            elif (
+                line.endswith(".hpp")
+                or line.endswith(".H")
+                or line.endswith(".cpp")
+                or line.endswith(".C")
+                or line.endswith(".cc")
+                or line.endswith(".cxx")
+            ):
+                line = substitute(vardict, line)
+                assert "$" not in line
+                srcs.append(SimpleSourcefile(PROJECT_ROOT / wmake_dir / line))
+            else:
+                raise ValueError(line)
+        else:
+            raise ValueError(line)
+    return Intermediate(
+        srcs=srcs,
+        varname=varname,
+        typ=typ,
+    )
+
+
+def calc_includes(PROJECT_ROOT, wmake_dir, optionsdict) -> T.List[Include]:
+    includes: T.List[Include] = [
+        RecursiveInclude(PROJECT_ROOT / wmake_dir),
+        RecursiveInclude(PROJECT_ROOT / "src" / "OpenFOAM"),
+        RecursiveInclude(PROJECT_ROOT / "src" / "OSspecific" / "POSIX"),
+    ]
+    for inckey in ["$(EXE_INC)", "$(LIB_INC)"]:
+        for arg in optionsdict[inckey].split(" "):
+            el = arg.lstrip()
+            if el == "":
+                continue
+            if not el.startswith("-I"):
+                continue
+            if "$" in el:
+                print(dirpath, "warning: unresolved variable in ", el)
+                continue
+            el = remove_prefix(el, "-I")
+            if os.path.isabs(el):
+                abspath = Path(el)
+            else:
+                abspath = PROJECT_ROOT / wmake_dir / el
+                abspath = Path(os.path.normpath(str(abspath)))
+            if abspath.parts[-1] == "lnInclude":
+                recdir = abspath.parent
+                includes.append(RecursiveInclude(recdir))
+                continue
+                if INCLUDE_METHOD == "BUILD_LN":
+                    if recdir + "/lnInclude" in lnIncludes_to_be_generated:
+                        used_lnIncludes.add(os.path.normpath(str(abspath)))
+                        x = "lnInc_" + mangle_name(
+                            remove_prefix(recdir, str(PROJECT_ROOT) + "/")
+                        )
+                        assert (
+                            x
+                            != "lnInc_applications_slash_solvers_slash_stressAnalysis_slash_solidDisplacementFoam_slash_tractionDisplacement"
+                        )
+                        order_depends.append(
+                            "lnInc_"
+                            + mangle_name(
+                                remove_prefix(recdir, str(PROJECT_ROOT) + "/")
+                            )
+                        )
+                    else:
+                        # todo: warning
+                        pass
+                elif INCLUDE_METHOD == "PREBUILD_LN":
+                    if path.exists(str(abspath)):
+                        incdirs.append("'<PATH>" + str(abspath) + "</PATH>'")
+                        raise ValueError
+                    else:
+                        pass
+                        # TODO:
+                        # I would like to enable this warning, but
+                        # https://develop.openfoam.com/Development/openfoam/-/issues/1994 should
+                        # be resolved before this, otherwise we will get too many warning
+                        # print(
+                        #     "warning:",
+                        #     str(abspath),
+                        #     "does not exist",
+                        # )
+                        # show_debugging_help(arg)
+                elif INCLUDE_METHOD == "SINGLE":
+                    if path.exists(recdir):
+                        incdirs.append(
+                            "run_command(meson.source_root() + '/meson/rec_dirs.sh', '<PATH>"
+                            + recdir
+                            + "</PATH>', check: true).stdout().strip().split('\\n')"
+                        )
+                    else:
+                        print(
+                            "warning:",
+                            recdir,
+                            "does not exist",
+                        )
+                        show_debugging_help(arg)
+
+            else:
+                includes.append(NonRecursiveInclude(abspath))
+                continue
+                if path.exists(abspath):
+                    incdirs.append("'<PATH>" + str(abspath) + "</PATH>'")
+                else:
+                    print(
+                        "warning:",
+                        abspath,
+                        "does not exist",
+                    )
+                    show_debugging_help(arg)
+    return includes
+
+
+def calc_libs(optionsdict, typ: TargetType) -> T.List[Include]:
+    order_depends: T.List[str] = []
+    dependencies: T.List[str] = []
+    if typ == TargetType:
+        order_depends.append("lib_OpenFOAM")
+        dependencies += ["m_dep", "dl_dep"]
+
+    for libkey in ["$(EXE_LIBS)", "$(LIB_LIBS)"]:
+        for el in optionsdict[libkey].split(" "):
+            el = el.lstrip()
+            if el == "":
+                continue
+            if "$" in el:
+                print("warning: unresolved variable in ", el)
+                continue
+            if el.endswith("libOSspecific.o"):
+                order_depends.append("lib_OSspecific")
+                continue
+            if el == "-pthread":
+                dependencies.append("thread_dep")
+                continue
+            if el.startswith("-L"):
+                continue
+            if el.startswith("-Wl,") and el.endswith(path.sep + "openmpi"):
+                # on my machine: el == "-Wl,/usr/lib/openmpi"
+                continue
+            if el in [
+                "-Wl,-rpath",
+                "-Wl,/usr/lib",
+                "-Wl,--enable-new-dtags",
+            ]:  # todo special
+                # These flags orignate from the line
+                # PLIBS   = $(shell mpicc --showme:link)
+                # in wmake/rules/General/mpi-mpicc-openmpi
+                # I don't really know what these flags do, but I think we would notice it if it would be necessary.
+                continue
+            if not el.startswith("-l"):
+                print("warning in ", dirpath, ": not starting with -l: ", el)
+                exit(1)
+                continue
+
+            el = remove_prefix(el, "-l")
+            # todo special
+            flag = True
+            for lib in [
+                "boost_system",
+                "fftw3",
+                "mpi",
+                "z",
+                "CGAL",
+                "mpfr",
+                "gmp",
+                "kahip",
+                "metis",
+                "scotch",
+            ]:
+                if el == lib:
+                    dependencies.append(lib.lower() + "_dep")
+                    flag = False
+            if flag and el not in ["scotcherrexit", "ptscotch", "ptscotcherrexit"]:
+                order_depends.append("lib_" + mangle_name(el))
+    return order_depends, dependencies

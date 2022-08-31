@@ -10,7 +10,9 @@ import graphlib
 from collections import defaultdict
 from pathlib import Path
 import typing as T
+from dataclasses import dataclass
 
+# make sure that it will not create files outside of the project root
 dryrun = False
 if dryrun:
     print("##################### WARNING: DRYRUNNING ################################")
@@ -26,13 +28,6 @@ def remove_suffix(line, search):
     assert line.endswith(search), line + " -----  " + search
     line = line[: -len(search)]
     return line.rstrip()
-
-
-def writef(path, data):
-    if dryrun:
-        return
-    with open(path, "w") as ofile:
-        ofile.write(data)
 
 
 # Template is essentially a wrapper around a string (Template.temp is a string), but with '<PATH>/some/path</PATH>' instead of '/some/path', which allows us to do things like: Replace all absolute paths with equivalent relative paths
@@ -77,23 +72,19 @@ class Template:
 
 
 # A Node represents one recipe that we need to put in some meson.build file.
+@dataclass
 class Node:
-    # todo: rename ideal to outpath
+    # The opposite of ddeps
+    provides: str
     # template.temp is the the recipe as a string, but with '<PATH>/some/path</PATH>' instead of '/some/path'
     template: Template
     # Direkt Dependencies of this recipe
     ddeps: list[str]
-    # Path of the ideal meson.build file to put this recipe in. E.g.
+    # Path of the meson.build file to put this recipe in. E.g.
     # ('applications', 'solvers', 'DNS', 'dnsFoam')
-    ideal: tuple[str]
+    outpath: tuple[str]
     # Will be printed in some warnings/error messages
     debuginfo: str
-
-    def __init__(self, ddeps, template: Template, ideal, debuginfo):
-        self.ddeps = ddeps
-        self.template = template
-        self.ideal = ideal
-        self.debuginfo = debuginfo
 
 
 class BuildDesc:
@@ -115,7 +106,7 @@ class BuildDesc:
 
         for (key, el) in self.elements.items():
             recipe = el.template.temp.replace("<PATH>", "").replace("</PATH>", "")
-            outpath = Path(self.root, *el.ideal, "meson.build")
+            outpath = Path(self.root, *el.outpath, "meson.build")
             with open(outpath, "a") as ofile:
                 ofile.write(recipe)
 
@@ -124,25 +115,19 @@ class BuildDesc:
         assert path.is_absolute()
         self.custom_prefixes[path] = custom
 
-    def add_template(
-        self, provides: str, depends: T.List[str], template, ideal_path, debuginfo
-    ):
-        ideal = os.path.normpath(ideal_path)
-        ideal = remove_prefix(ideal, str(self.root))
-        assert len(ideal) == 0 or ideal[0] == os.path.sep
-        ideal = Path(ideal[1:]).parts
-        assert provides not in depends
+    def add_node(self, node: Node):
+        assert node.provides not in node.ddeps
         assert (
-            provides not in self.elements
-        ), "you cannot have multiple targets with the same name: " + str(provides)
-        self.elements[provides] = Node(depends, template, ideal, debuginfo)
+            node.provides not in self.elements
+        ), "you cannot have multiple targets with the same name: " + str(node.provides)
+        self.elements[node.provides] = node
 
-    def starts_with(self, subgroup, ideal):
+    def starts_with(self, subgroup, outpath):
         depth = len(subgroup)
-        if depth > len(ideal):
+        if depth > len(outpath):
             return False
         for i in range(depth):
-            if ideal[i] != subgroup[i]:
+            if outpath[i] != subgroup[i]:
                 return False
         return True
 
@@ -162,13 +147,13 @@ class BuildDesc:
                 )
                 exit(1)
             self.elements[dep]
-            if not self.starts_with(subgroup, self.elements[dep].ideal):
+            if not self.starts_with(subgroup, self.elements[dep].outpath):
                 continue
-            if len(self.elements[dep].ideal) == depth:
+            if len(self.elements[dep].outpath) == depth:
                 ret.add(dep)
             else:
-                ndir = self.elements[dep].ideal[depth]
-                if depth >= len(el.ideal) or ndir != el.ideal[depth]:
+                ndir = self.elements[dep].outpath[depth]
+                if depth >= len(el.outpath) or ndir != el.outpath[depth]:
                     ret.add(Path(ndir))
         return ret
 
@@ -177,11 +162,11 @@ class BuildDesc:
         depth = len(subgroup)
         mixed_deps = {}
         for (key, el) in self.elements.items():
-            if not self.starts_with(subgroup, el.ideal):
+            if not self.starts_with(subgroup, el.outpath):
                 continue
-            if len(el.ideal) == depth:
+            if len(el.outpath) == depth:
                 continue
-            if Path(el.ideal[depth]) != dir_source:
+            if Path(el.outpath[depth]) != dir_source:
                 continue
             if file_target in el.ddeps:
                 return key
@@ -192,12 +177,12 @@ class BuildDesc:
         depth = len(subgroup)
         el = self.elements[file_source]
         for dep in el.ddeps:
-            if not self.starts_with(subgroup, self.elements[dep].ideal):
+            if not self.starts_with(subgroup, self.elements[dep].outpath):
                 continue
-            if len(self.elements[dep].ideal) == depth:
+            if len(self.elements[dep].outpath) == depth:
                 continue
-            ndir = self.elements[dep].ideal[depth]
-            if depth >= len(el.ideal) or ndir != el.ideal[depth]:
+            ndir = self.elements[dep].outpath[depth]
+            if depth >= len(el.outpath) or ndir != el.outpath[depth]:
                 if Path(ndir) == dir_target:
                     return dep
         return None
@@ -207,11 +192,11 @@ class BuildDesc:
         depth = len(subgroup)
         mixed_deps = {}
         for (key, el) in self.elements.items():
-            if not self.starts_with(subgroup, el.ideal):
+            if not self.starts_with(subgroup, el.outpath):
                 continue
-            if len(el.ideal) == depth:
+            if len(el.outpath) == depth:
                 continue
-            if Path(el.ideal[depth]) != dir_source:
+            if Path(el.outpath[depth]) != dir_source:
                 continue
 
             ret = self.get_dep_reason_2(subgroup, key, dir_target)
@@ -223,12 +208,12 @@ class BuildDesc:
         depth = len(subgroup)
         mixed_deps = {}
         for (key, el) in self.elements.items():
-            if not self.starts_with(subgroup, el.ideal):
+            if not self.starts_with(subgroup, el.outpath):
                 continue
-            if len(el.ideal) == depth:
+            if len(el.outpath) == depth:
                 mixed_deps[key] = self.generalised_deps(subgroup, el)
             else:
-                pkey = Path(el.ideal[depth])
+                pkey = Path(el.outpath[depth])
                 if pkey not in mixed_deps:
                     mixed_deps[pkey] = set()
                 mixed_deps[pkey].update(self.generalised_deps(subgroup, el))
@@ -292,13 +277,13 @@ class BuildDesc:
         if outpath in self.custom_prefixes:
             total = self.custom_prefixes[outpath] + "\n\n" + total
 
-        writef(outpath, total)
+        self.writef(outpath, total)
 
         entries = set()
         for (key, el) in self.elements.items():
-            if self.starts_with(subgroup, el.ideal):
-                if len(subgroup) != len(el.ideal):
-                    entries.add(el.ideal[len(subgroup)])
+            if self.starts_with(subgroup, el.outpath):
+                if len(subgroup) != len(el.outpath):
+                    entries.add(el.outpath[len(subgroup)])
 
         for dir in entries:
             self.writer_recursion(generated_files, subgroup + [dir])
@@ -308,6 +293,13 @@ class BuildDesc:
         generated_files = {}
         self.writer_recursion(generated_files, [])
         return generated_files
+
+    def writef(self, path, data):
+        if dryrun:
+            return
+        assert os.path.normpath(path).startswith(str(self.root) + "/")
+        with open(path, "w") as ofile:
+            ofile.write(data)
 
 
 def largest_commons_prefix(paths):
