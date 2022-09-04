@@ -15,10 +15,10 @@ broken_dirs:
   - applications/utilities/mesh/generation/foamyMesh/cellSizeAndAlignmentGrid
   - applications/utilities/mesh/generation/foamyMesh/foamyHexMeshBackgroundMesh
   - applications/utilities/mesh/generation/foamyMesh/foamyHexMeshSurfaceSimplify
-  # - src/parallel/decompose/scotchDecomp
-  # - src/parallel/decompose/ptscotchDecomp
-  # - src/parallel/decompose/metisDecomp
-  # - src/parallel/decompose/kahipDecomp
+  - src/parallel/decompose/scotchDecomp
+  - src/parallel/decompose/ptscotchDecomp
+  - src/parallel/decompose/metisDecomp
+  - src/parallel/decompose/kahipDecomp
   - src/conversion/ccm
   - src/fvAgglomerationMethods/MGridGenGamgAgglomeration
   - src/renumber/zoltanRenumber

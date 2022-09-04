@@ -4,7 +4,6 @@ from os import path, listdir, walk
 import os
 from pathlib import Path
 
-print(sys.argv)
 source_root = Path(sys.argv[1])
 build_root = Path(sys.argv[2])
 
@@ -23,6 +22,8 @@ for subdir in source_root.rglob("Make"):
                 outfile.symlink_to(fp)
         else:
             outfile.symlink_to(fp)
+
+Path(build_root / "fake.h").touch()  # To make sure this script is not rerun nedlessly
 
 # srcroot=$1
 # recdir=$2

@@ -284,9 +284,7 @@ def parse_files_file(PROJECT_ROOT, wmake_dir, preprocessed):
 
 def calc_includes(PROJECT_ROOT, wmake_dir, optionsdict) -> T.List[Include]:
     includes: T.List[Include] = [
-        RecursiveInclude(PROJECT_ROOT / wmake_dir),
-        RecursiveInclude(PROJECT_ROOT / "src" / "OpenFOAM"),
-        RecursiveInclude(PROJECT_ROOT / "src" / "OSspecific" / "POSIX"),
+        NonRecursiveInclude(PROJECT_ROOT / wmake_dir),
     ]
     for inckey in ["$(EXE_INC)", "$(LIB_INC)"]:
         for arg in optionsdict[inckey].split(" "):
@@ -370,13 +368,16 @@ def calc_includes(PROJECT_ROOT, wmake_dir, optionsdict) -> T.List[Include]:
                         "does not exist",
                     )
                     show_debugging_help(arg)
+    includes.append(RecursiveInclude(PROJECT_ROOT / wmake_dir)),
+    includes.append(RecursiveInclude(PROJECT_ROOT / "src" / "OpenFOAM"))
+    includes.append(RecursiveInclude(PROJECT_ROOT / "src" / "OSspecific" / "POSIX"))
     return includes
 
 
 def calc_libs(optionsdict, typ: TargetType) -> T.List[Include]:
     order_depends: T.List[str] = []
     dependencies: T.List[str] = []
-    if typ == TargetType:
+    if typ == TargetType.exe:
         order_depends.append("lib_OpenFOAM")
         dependencies += ["m_dep", "dl_dep"]
 

@@ -206,7 +206,7 @@ def wmake_to_meson(PROJECT_ROOT, used_lnIncludes, wmake_dir, preprocessed, parse
     srcs.append(f"files({files_srcs_joined})")
     srcs_joined = ",\n    ".join(srcs)
     assert("$" not in srcs_joined)
-    template += f"""srcfiles = [lnInclude_hack, \n    {srcs_joined}]
+    template +=f"""srcfiles = [lnInclude_hack, \n    {srcs_joined}]
     rec_dirs_srcs = [{rec_dirs_srcs_joined}]
     foreach dir : rec_dirs_srcs
         srcfiles += run_command(meson.source_root() + '/meson/rec_C.sh', dir, check: true).stdout().strip().split('\\n')
@@ -224,45 +224,52 @@ def wmake_to_meson(PROJECT_ROOT, used_lnIncludes, wmake_dir, preprocessed, parse
 
     #pdb.set_trace()
     #includes
-    non_recursive_includes = []
-    recursive_includes = []
+    cpp_args = []
     for include in includes:
         match include:
             case NonRecursiveInclude(path):
                 if path.exists():
-                    non_recursive_includes.append(f"'<PATH>{path}</PATH>'")
+                    cpp_args.append(f"'-I' + meson.source_root() / '{path.relative_to(PROJECT_ROOT)}'")
                 else:
                     print(f"Warning: {path} does not exist")
             case RecursiveInclude(path):
                 if path.exists():
-                    recursive_includes.append(f"'-I' + meson.build_root() + '/{path.relative_to(PROJECT_ROOT)}'")
+                    cpp_args.append(f"'-I' + meson.build_root() / '{path.relative_to(PROJECT_ROOT)}'")
                 else:
                     print(f"Warning: {path} does not exist")
             case _:
                 raise NotImplemented
 
-    addspace = "\n    " if len(non_recursive_includes) > 0 else ""
+    addspace = "\n    " if len(cpp_args) > 0 else ""
     template += (
-        "non_recursive_includes = [\n    " + ",\n    ".join(non_recursive_includes) + addspace + "]\n"
+        "cpp_args = [\n    " + ",\n    ".join(cpp_args) + addspace + "]\n"
     )
-    addspace = "\n    " if len(recursive_includes) > 0 else ""
-    template += (
-        "recursive_includes = [\n    " + ",\n    ".join(recursive_includes) + addspace + "]\n"
-    )
+
+    if wmake_dir == PROJECT_ROOT / "applications/utilities/surface/surfaceBooleanFeatures":
+        order_depends.append("lib_PolyhedronReader")
+        template += """
+        if cgal_dep.found()
+            cpp_args += '-I' + meson.source_root() / 'applications/utilities/surface/surfaceBooleanFeatures/PolyhedronReader'
+            link_with += lib_PolyhedronReader
+            dependencies += cgal_dep
+        else
+            cpp_args += '-DNO_CGAL'
+        endif
+        """
 
     if inter.typ == TargetType.exe:
         template += (
             inter.varname
             + " = executable('"
             + remove_prefix(inter.varname, "exe_")
-            + "', srcfiles, include_directories: non_recursive_includes, link_with: link_with, dependencies: dependencies, install: true, implicit_include_directories: false, cpp_args: recursive_includes)\n"
+            + "', srcfiles, link_with: link_with, dependencies: dependencies, install: true, implicit_include_directories: false, cpp_args: cpp_args)\n"
         )
     elif inter.typ == TargetType.lib:
         template += (
             inter.varname
             + " = library('"
             + remove_prefix(inter.varname, "lib_")
-            + "', srcfiles, include_directories: non_recursive_includes, link_with: link_with, dependencies: dependencies, install: true, implicit_include_directories: false, cpp_args: recursive_includes)\n"
+            + "', srcfiles, link_with: link_with, dependencies: dependencies, install: true, implicit_include_directories: false, cpp_args: cpp_args)\n"
         )
 
 
@@ -372,8 +379,8 @@ def main():
     thread_dep = dependency('threads')
     cgal_dep = dependency('CGAL', required: false)
 
-    scotch_pro = cmake.subproject('scotch')
-    scotch_dep = scotch_pro.dependency('scotch', include_type: 'system') #todo: is 'system' correct?
+    #scotch_pro = cmake.subproject('scotch')
+    #scotch_dep = scotch_pro.dependency('scotch', include_type: 'system') #todo: is 'system' correct?
 
     if not cgal_dep.found()
         # applications/utilities/surface/surfaceBooleanFeatures and applications/utilities/surface/surfaceBooleanFeatures/PolyhedronReader are the only directories that needs this flag, but a global argument seems nicer
@@ -403,8 +410,18 @@ def main():
     m4lemon = find_program('meson/m4lemon.sh')
 
     lnInclude_hack = custom_target(
-            output: 'fake.h',
-            command: [meson.source_root() / 'meson' / 'create_all_symlinks.py', meson.source_root(), meson.build_root()])
+            output: 'fake.h', #todo: rename
+            command: [
+                meson.source_root() / 'meson' / 'create_all_symlinks.py',
+                meson.source_root(),
+                meson.build_root(),
+                run_command('date', check: true).stdout().split('\\n')[0] # To make sure that this target is rerun if meson is reconfigured. split('\\n')[0] is there because build.ninja would get a bit ugly.
+                ])
+
+    reconfigure_dirs = []
+    foreach dir : ['src', 'applications', 'tutorials']
+        reconfigure_dirs += run_command('find', meson.source_root() / dir, '-type', 'd', check: true).stdout().split('\\n')
+    endforeach
     """
     with open("meson/data.yaml", "r") as stream:
         yamldata = yaml.safe_load(stream)
@@ -420,7 +437,6 @@ def main():
     preprocessed = all_preprocess_files_file(wmake_dirs)
     parsed_options = all_parse_options_file(wmake_dirs)
 
-    # exit(1)
     for wmake_dir in wmake_dirs:
         node = wmake_to_meson(
             PROJECT_ROOT, used_lnIncludes, wmake_dir, preprocessed[wmake_dir], parsed_options[wmake_dir]
@@ -540,3 +556,5 @@ if __name__ == "__main__":
 # make sure build.ninja is rebuild if a .C file is added
 
 # https://develop.openfoam.com/Development/openfoam/-/issues/1994
+
+# todo: make whispace in **/meson.build look nice
