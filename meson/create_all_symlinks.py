@@ -8,10 +8,7 @@ source_root = Path(sys.argv[1])
 build_root = Path(sys.argv[2])
 
 
-for subdir in source_root.rglob("Make"):
-    if not path.isdir(subdir):
-        continue
-    subdir = subdir.parent
+def create_symlinks_for_dir(subdir):
     outdir = build_root / subdir.relative_to(source_root)
     outdir.mkdir(parents=True, exist_ok=True)
     for fp in subdir.rglob("*.[CHh]"):
@@ -33,6 +30,21 @@ for subdir in source_root.rglob("Make"):
                 outfile.symlink_to(fp)
         else:
             outfile.symlink_to(fp)
+
+
+for subdir in source_root.rglob("Make"):
+    if not path.isdir(subdir):
+        continue
+    subdir = subdir.parent
+    create_symlinks_for_dir(subdir)
+
+for (
+    el
+) in [  # These are the only directories found using `rg wmakeLnInclude` that do not have a `Make`` subdirectory
+    "src/TurbulenceModels/phaseCompressible",
+    "src/TurbulenceModels/phaseIncompressible",
+]:
+    create_symlinks_for_dir(source_root / el)
 
 Path(build_root / "fake.h").touch()  # To make sure this script is not rerun nedlessly
 
