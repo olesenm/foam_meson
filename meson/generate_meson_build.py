@@ -48,6 +48,7 @@ sys.excepthook = info
 # attempting to add a target with one of these names needs to fail immediately to avoid confusing with system libraries
 target_blacklist = ["lib_boost_system", "lib_fftw3", "lib_mpi", "lib_z"]
 
+
 def find_subdirs(dirpath, el, varname="incdirs", include_directories=False):
     assert el[-1] != "/"
     mesonsrc = ""
@@ -131,11 +132,13 @@ def group_full_dirs(files_srcs):
             in_ret[fp] = True
     return ret_files, ret_dirs
 
+
 def to_meson_array(python_ar: T.List[str]) -> str:
     if len(python_ar) == 0:
         return "[]"
     else:
-        return "[\n" + "".join([f'    {el},\n' for el in python_ar]) + "]"
+        return "[\n" + "".join([f"    {el},\n" for el in python_ar]) + "]"
+
 
 def fix_ws_inline(src: str, spaces: int, prefixed: bool = False) -> str:
     src = textwrap.dedent(src)
@@ -145,11 +148,14 @@ def fix_ws_inline(src: str, spaces: int, prefixed: bool = False) -> str:
         src += "# REMOVE NEWLINE"
     return src
 
+
 # A wrapper around str that changes some whitespace stuff
 class WhitespaceFixer:
     temp: str
+
     def __init__(self):
         self.temp = ""
+
     def __iadd__(self, other):
         if not isinstance(other, str):
             return NotImplemented
@@ -160,8 +166,10 @@ class WhitespaceFixer:
                 other += "\n"
             self.temp += other
         return self
+
     def __str__(self):
         return self.temp.replace("# REMOVE NEWLINE\n", "")
+
 
 def wmake_to_meson(PROJECT_ROOT, wmake_dir, preprocessed, parsed_options):
     dirpath = wmake_dir / "Make"
@@ -240,7 +248,9 @@ def wmake_to_meson(PROJECT_ROOT, wmake_dir, preprocessed, parsed_options):
     if GROUP_FULL_DIRS:
         files_srcs, rec_dirs_srcs = group_full_dirs(files_srcs)
     rec_dirs_srcs_quoted = [f"'<PATH>{x}</PATH>'" for x in rec_dirs_srcs]
-    srcs_quoted = ["lnInclude_hack"] + other_srcs + [f"'<PATH>{x}</PATH>'" for x in files_srcs]
+    srcs_quoted = (
+        ["lnInclude_hack"] + other_srcs + [f"'<PATH>{x}</PATH>'" for x in files_srcs]
+    )
 
     cpp_args = []
     for include in includes:
@@ -274,7 +284,10 @@ def wmake_to_meson(PROJECT_ROOT, wmake_dir, preprocessed, parsed_options):
     cpp_args = {fix_ws_inline(to_meson_array(cpp_args), 4, True)}
     """
 
-    if wmake_dir == PROJECT_ROOT / "applications/utilities/surface/surfaceBooleanFeatures":
+    if (
+        wmake_dir
+        == PROJECT_ROOT / "applications/utilities/surface/surfaceBooleanFeatures"
+    ):
         order_depends.append("lib_PolyhedronReader")
         template += textwrap.dedent(
             """
@@ -296,7 +309,9 @@ def wmake_to_meson(PROJECT_ROOT, wmake_dir, preprocessed, parsed_options):
             endif
             """
         )
-    elif is_subdir(PROJECT_ROOT / "applications/utilities/mesh/manipulation/setSet", wmake_dir):
+    elif is_subdir(
+        PROJECT_ROOT / "applications/utilities/mesh/manipulation/setSet", wmake_dir
+    ):
         template += textwrap.dedent(
             """
             if readline_dep.found()
@@ -305,7 +320,10 @@ def wmake_to_meson(PROJECT_ROOT, wmake_dir, preprocessed, parsed_options):
             endif
             """
         )
-    elif is_subdir(PROJECT_ROOT / "applications/utilities/mesh/manipulation/renumberMesh", wmake_dir):
+    elif is_subdir(
+        PROJECT_ROOT / "applications/utilities/mesh/manipulation/renumberMesh",
+        wmake_dir,
+    ):
         template += textwrap.dedent(
             """
             if zoltan_dep.found()
@@ -415,12 +433,14 @@ def main():
         else:
             raise ValueError()
         varname = name.lower() + "_dep"
-        optional_deps_joined += textwrap.dedent(f"""
+        optional_deps_joined += textwrap.dedent(
+            f"""
         {varname} = {func}('{name}', required: false)
         if not {varname}.found()
             {varname} = disabler()
         endif\
-        """)
+        """
+        )
 
     mainsrc = textwrap.dedent(
         f"""
