@@ -131,6 +131,37 @@ def group_full_dirs(files_srcs):
             in_ret[fp] = True
     return ret_files, ret_dirs
 
+def to_meson_array(python_ar: T.List[str]) -> str:
+    if len(python_ar) == 0:
+        return "[]"
+    else:
+        return "[\n" + "".join([f'    {el},\n' for el in python_ar]) + "]"
+
+def fix_ws_inline(src: str, spaces: int, prefixed: bool = False) -> str:
+    src = textwrap.dedent(src)
+    src = src.strip("\n")
+    src = src.replace("\n", "\n" + " " * spaces)
+    if not prefixed and src == "":
+        src += "# REMOVE NEWLINE"
+    return src
+
+# A wrapper around str that changes some whitespace stuff
+class WhitespaceFixer:
+    temp: str
+    def __init__(self):
+        self.temp = ""
+    def __iadd__(self, other):
+        if not isinstance(other, str):
+            return NotImplemented
+        else:
+            other = textwrap.dedent(other)
+            other = other.strip("\n")
+            if other != "":
+                other += "\n"
+            self.temp += other
+        return self
+    def __str__(self):
+        return self.temp.replace("# REMOVE NEWLINE\n", "")
 
 def wmake_to_meson(PROJECT_ROOT, wmake_dir, preprocessed, parsed_options):
     dirpath = wmake_dir / "Make"
@@ -165,8 +196,7 @@ def wmake_to_meson(PROJECT_ROOT, wmake_dir, preprocessed, parsed_options):
                 / "src/OpenFOAM/primitives/Tensor/floatTensor/floatTensor.C"
             )
         )
-        template_part_1 = textwrap.dedent(
-            f"""
+        template_part_1 = f"""
         dp_add = files('primitives/Vector/doubleVector/doubleVector.C', 'primitives/Tensor/doubleTensor/doubleTensor.C')
         sp_add = files('primitives/Vector/floatVector/floatVector.C', 'primitives/Tensor/floatTensor/floatTensor.C')
         if get_option('WM_PRECISION_OPTION') != 'DP'
@@ -175,62 +205,43 @@ def wmake_to_meson(PROJECT_ROOT, wmake_dir, preprocessed, parsed_options):
             srcfiles += sp_add
         endif
         """
-        )
         pass
 
+    template = WhitespaceFixer()
+
     files_srcs = []
-    srcs = []
-    template = ""
+    other_srcs = []
     for el in inter.srcs:
         match el:
             case SimpleSourcefile(x):
                 files_srcs.append(x)
             case FoamConfigSourcefile():
-                srcs.append("foamConfig_cpp")
+                other_srcs.append("foamConfig_cpp")
             case FlexgenSourcefile(x):
-                srcs.append(f"flexgen.process('<PATH>{x}</PATH>')")
+                other_srcs.append(f"flexgen.process('<PATH>{x}</PATH>')")
             case LyyM4Sourcefile(x):
                 name = remove_suffix(x.parts[-1], ".lyy-m4")
                 varname = x.parts[-1]
                 for c in "$", ".", "(", ")", "/", "_", "-":
                     varname = varname.replace(c, "_")
                 varname + "_cpp"
-                template += f"{varname} = custom_target('{varname}', input: '<PATH>{x}</PATH>', output : '{name}.cc', \n command: [m4lemon, meson.source_root(), '<PATH>{PROJECT_ROOT / wmake_dir}</PATH>', lemonbin, '@INPUT@', '@OUTPUT@' ])\n"
-                srcs.append(varname)
+                template += f"""
+                {varname} = custom_target(
+                    '{varname}',
+                    input: '<PATH>{x}</PATH>',
+                    output : '{name}.cc',
+                    command: [m4lemon, meson.source_root(), '<PATH>{PROJECT_ROOT / wmake_dir}</PATH>', lemonbin, '@INPUT@', '@OUTPUT@' ])
+                """
+                other_srcs.append(varname)
             case _:
                 raise NotImplemented
 
     rec_dirs_srcs = []
     if GROUP_FULL_DIRS:
         files_srcs, rec_dirs_srcs = group_full_dirs(files_srcs)
-    rec_dirs_srcs_joined = ",\n    ".join(
-        [f"'<PATH>{x}</PATH>'" for x in rec_dirs_srcs]
-    )
-    files_srcs = [f"'<PATH>{x}</PATH>'" for x in files_srcs]
+    rec_dirs_srcs_quoted = [f"'<PATH>{x}</PATH>'" for x in rec_dirs_srcs]
+    srcs_quoted = ["lnInclude_hack"] + other_srcs + [f"'<PATH>{x}</PATH>'" for x in files_srcs]
 
-    files_srcs_joined = ",\n    ".join(files_srcs)
-    srcs.append(f"{files_srcs_joined}")
-    srcs_joined = ",\n    ".join(srcs)
-    assert "$" not in srcs_joined
-    template += textwrap.dedent(
-        f"""srcfiles = [lnInclude_hack, \n    {srcs_joined}]
-    rec_dirs_srcs = [{rec_dirs_srcs_joined}]
-    foreach dir : rec_dirs_srcs
-        srcfiles += run_command(meson.source_root() + '/meson/rec_C.sh', dir, check: true).stdout().strip().split('\\n')
-    endforeach
-    """
-    )
-    template += template_part_1
-
-    addspace = "\n    " if len(order_depends) > 0 else ""
-    template += "link_with = [\n    " + ",\n    ".join(order_depends) + addspace + "]\n"
-    addspace = "\n    " if len(dependencies) > 0 else ""
-    template += (
-        "dependencies = [\n    " + ",\n    ".join(dependencies) + addspace + "]\n"
-    )
-
-    # pdb.set_trace()
-    # includes
     cpp_args = []
     for include in includes:
         match include:
@@ -251,8 +262,17 @@ def wmake_to_meson(PROJECT_ROOT, wmake_dir, preprocessed, parsed_options):
             case _:
                 raise NotImplemented
 
-    addspace = "\n    " if len(cpp_args) > 0 else ""
-    template += "cpp_args = [\n    " + ",\n    ".join(cpp_args) + addspace + "]\n"
+    template += f"""
+    srcfiles = {fix_ws_inline(to_meson_array(srcs_quoted), 4, True)}
+    rec_dirs_srcs = {fix_ws_inline(to_meson_array(rec_dirs_srcs_quoted), 4, True)}
+    foreach dir : rec_dirs_srcs
+        srcfiles += run_command(meson.source_root() + '/meson/rec_C.sh', dir, check: true).stdout().strip().split('\\n')
+    endforeach
+    {fix_ws_inline(template_part_1, 4, False)}
+    link_with = {fix_ws_inline(to_meson_array(order_depends), 4, True)}
+    dependencies = {fix_ws_inline(to_meson_array(dependencies), 4, True)}
+    cpp_args = {fix_ws_inline(to_meson_array(cpp_args), 4, True)}
+    """
 
     if wmake_dir == PROJECT_ROOT / "applications/utilities/surface/surfaceBooleanFeatures":
         order_depends.append("lib_PolyhedronReader")
@@ -303,20 +323,25 @@ def wmake_to_meson(PROJECT_ROOT, wmake_dir, preprocessed, parsed_options):
             """
         )
 
+    func = None
+    name = None
     if inter.typ == TargetType.exe:
-        template += (
-            inter.varname
-            + " = executable('"
-            + remove_prefix(inter.varname, "exe_")
-            + "', srcfiles, link_with: link_with, dependencies: dependencies, install: true, implicit_include_directories: false, cpp_args: cpp_args)\n"
-        )
+        func = "executable"
+        name = remove_prefix(inter.varname, "exe_")
     elif inter.typ == TargetType.lib:
-        template += (
-            inter.varname
-            + " = library('"
-            + remove_prefix(inter.varname, "lib_")
-            + "', srcfiles, link_with: link_with, dependencies: dependencies, install: true, implicit_include_directories: false, cpp_args: cpp_args)\n"
-        )
+        func = "library"
+        name = remove_prefix(inter.varname, "lib_")
+    template += f"""
+            {inter.varname} = {func}(
+                '{name}',
+                srcfiles,
+                link_with: link_with,
+                dependencies: dependencies,
+                cpp_args: cpp_args,
+                implicit_include_directories: false,
+                install: true,
+            )
+    """
 
     # required_optional_deps = set(dependencies) & set([ k.lower()+"_dep" for k in optional_deps.keys()])
     # if len(required_optional_deps) != 0:
@@ -324,7 +349,7 @@ def wmake_to_meson(PROJECT_ROOT, wmake_dir, preprocessed, parsed_options):
     #     cond = " and ".join([el+".found()" for el in required_optional_deps])
     #     template = f"if {cond}\n{template}endif\n"
 
-    template = Template(template)
+    template = Template(str(template))
     template.make_absolute(PROJECT_ROOT / wmake_dir)
 
     template.assert_absolute()
@@ -396,7 +421,6 @@ def main():
             {varname} = disabler()
         endif\
         """)
-    optional_deps_joined = textwrap.indent(optional_deps_joined, "    ")
 
     mainsrc = textwrap.dedent(
         f"""
@@ -445,7 +469,7 @@ def main():
     z_dep = cppc.find_library('z')
     fftw3_dep = cppc.find_library('fftw3')
     mpi_dep = cppc.find_library('mpi')
-    {optional_deps_joined}
+    {textwrap.indent(optional_deps_joined, "    ")}
 
     thread_dep = dependency('threads')
     boost_system_dep = dependency('boost', modules : ['system'])
@@ -464,13 +488,13 @@ def main():
     m4lemon = find_program('meson/m4lemon.sh')
 
     lnInclude_hack = custom_target(
-            output: 'fake.h',
-            command: [
-                meson.source_root() / 'meson' / 'create_all_symlinks.py',
-                meson.source_root(),
-                meson.build_root(),
-                run_command('date', check: true).stdout().split('\\n')[0] # To make sure that this target is rerun if meson is reconfigured. split('\\n')[0] is there because build.ninja would get a bit ugly otherwise.
-                ])
+        output: 'fake.h',
+        command: [
+            meson.source_root() / 'meson' / 'create_all_symlinks.py',
+            meson.source_root(),
+            meson.build_root(),
+            run_command('date', check: true).stdout().split('\\n')[0] # To make sure that this target is rerun if meson is reconfigured. split('\\n')[0] is there because build.ninja would get a bit ugly otherwise.
+            ])
 
     regen_on_dir_change([{recursive_regen_dirs_joined}], recursive: true)
     """

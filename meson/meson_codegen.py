@@ -280,16 +280,19 @@ class BuildDesc:
         outpath = Path(self.root, *subgroup, "meson.build")
         generated_files[outpath] = []
         total = ""
+        state = "empty"
         for el in order:
             if isinstance(el, Path):
+                if state == "target":
+                    total += "\n"
+                state = "subdir"
                 total += "subdir('" + str(el) + "')\n"
             else:
-                total += (
-                    "\n"
-                    + self.elements[el].template.export_relative(
-                        Path(self.root, *subgroup)
-                    )
-                    + "\n"
+                if state != "empty":
+                    total += "\n"
+                state = "target"
+                total += self.elements[el].template.export_relative(
+                    Path(self.root, *subgroup)
                 )
                 generated_files[outpath].append(el)
 
