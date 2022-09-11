@@ -8,7 +8,7 @@ disable_scanning:
   - src/OSspecific/MSwindows
 
 broken_dirs:
-  # The following three directories are tests do not compile because someone changed other code without changing the tests. TODO: open an issue
+  # The following three directories are tests do not compile because someone changed other code without changing the tests.
   - applications/test/rigidBodyDynamics/spring
   - applications/test/coordinateSystem
   - applications/test/labelRanges

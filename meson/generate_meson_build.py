@@ -550,5 +550,3 @@ def main():
 if __name__ == "__main__":
     main()
     # cProfile.run('main()')
-
-# todo: make whitwspace in **/meson.build look nice

@@ -72,12 +72,13 @@ executable('exename', srcfiles, ...)
 - mv ~/Sync/git/openfoam some\ dir\ with\ spaces ; cd some\ dir\ with\ spaces ; meson setup builddir; ninja -C builddir
 - Doxygen
 - Compiling other OpenFoam versions
-- meson_options.txt has some todo's
-- run verify_data.py
 - The following should be tested often, because their -I and -l flags are easy to get wrong.
     - ninja buoyantBoussinesqPimpleFoam.p/applications_solvers_heatTransfer_buoyantBoussinesqPimpleFoam_buoyantBoussinesqPimpleFoam.cpp.o
     - ninja libfieldFunctionObjects.so.p/src_functionObjects_field_PecletNo_PecletNo.cpp.o
     - ninja correctBoundaryConditions
+
+## Checklist
+- run verify_data.py
 
 ## Maybe Never
 

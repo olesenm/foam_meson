@@ -16,12 +16,12 @@ from enum import Enum
 optional_deps = {
     "mpfr": "lib",
     "gmp": "lib",
-    "kahip": "lib",
     "metis": "lib",
     "zoltan": "lib",
     "mgrid": "lib",
     "ccmio": "lib",
     "readline": "lib",
+    "kahip": "dep",
     "scotch": "dep",
     "CGAL": "dep",
 }
@@ -89,9 +89,9 @@ def parse_options_file(wmake_dir):
         "$(FOAM_UTILITIES)": path.relpath("applications/utilities", wmake_dir),
         "$(FOAM_SOLVERS)": path.relpath("applications/solvers", wmake_dir),
         "POSIX_SRC_HACK": path.relpath("src/OSspecific/POSIX", wmake_dir),
-        "$(KAHIP_INC_DIR)": path.relpath(  # todo
-            "src/dummyThirdParty/kahipDecomp/lnInclude", wmake_dir
-        ),
+        # "$(KAHIP_INC_DIR)": path.relpath(
+        #     "src/dummyThirdParty/kahipDecomp/lnInclude", wmake_dir
+        # ),
         "$(GENERAL_RULES)": "wmake/rules/General",
     }
 
