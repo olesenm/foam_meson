@@ -14,7 +14,18 @@ for subdir in source_root.rglob("Make"):
     subdir = subdir.parent
     outdir = build_root / subdir.relative_to(source_root)
     outdir.mkdir(parents=True, exist_ok=True)
-    for fp in subdir.rglob("*.[CH]"):
+    for fp in subdir.rglob("*.[CHh]"):
+        if "lnInclude" in fp.parts:
+            continue
+        if (
+            fp.name
+            in [  # ugly name collisions. I hope this does not result in any problems.
+                "fieldExprLemonParser.h",
+                "patchExprLemonParser.h",
+                "volumeExprLemonParser.h",
+            ]
+        ):
+            continue
         outfile = outdir / fp.name
         if outfile.is_symlink():
             if outfile.readlink() != fp:

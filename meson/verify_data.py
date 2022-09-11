@@ -16,7 +16,7 @@ os.chdir("..")
 with open("meson/data.yaml", "r") as stream:
     yamldata = yaml.safe_load(stream)
 
-for el in yamldata["broken_dirs"]:
+for el in yamldata["broken_dirs"] + yamldatat["disable_scanning"]:
     if not path.exists(el):
         print(f"Warning: Why is {el} marked as broken, even though it does not exist?")
         continue
@@ -33,10 +33,4 @@ for el in yamldata["broken_dirs"]:
     if out.returncode == 0:
         print(
             f"Warning: Why is {el} marked as broken, even though compilation works fine?"
-        )
-
-for el in yamldata["ignored_dirs"]:
-    if not path.exists(el):
-        print(
-            f"Warning: Why is {el} an ignored directory, even though it does not exist?"
         )

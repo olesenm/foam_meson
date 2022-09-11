@@ -12,6 +12,20 @@ import os
 from meson_codegen import *
 from enum import Enum
 
+# todo: build scotch manually
+optional_deps = {
+    "mpfr": "lib",
+    "gmp": "lib",
+    "kahip": "lib",
+    "metis": "lib",
+    "zoltan": "lib",
+    "mgrid": "lib",
+    "ccmio": "lib",
+    "readline": "lib",
+    "scotch": "dep",
+    "CGAL": "dep",
+}
+
 # Turns a string into a valid identifier that can be used as a variable name in meson.buil
 def mangle_name(name):
     return name.replace("-", "_").replace("/", "_slash_")
@@ -34,18 +48,15 @@ def disccache(original_func):
 # Find all directories that have a subdirectory called Make and are not marked as broken or ignored.
 @disccache
 def find_all_wmake_dirs(PROJECT_ROOT, yamldata):
-    broken_dirs = [PROJECT_ROOT / p for p in yamldata["broken_dirs"]]
-    ignored_dirs = [PROJECT_ROOT / p for p in yamldata["ignored_dirs"]]
+    disable_scanning = [PROJECT_ROOT / p for p in yamldata["disable_scanning"]]
     ret = []
     for el in PROJECT_ROOT.rglob("Make"):
         if not path.isdir(el):
             continue
         el = el.parent
-        if "codeTemplates" in el.parts:  # todo: special
+        if "codeTemplates" in el.parts:
             continue
-        if el in broken_dirs:
-            continue
-        if el in ignored_dirs:
+        if el in disable_scanning:
             continue
         ret.append(el)
     return ret
@@ -70,16 +81,7 @@ def commentRemover(text):
 def parse_options_file(wmake_dir):
     with open(wmake_dir / "Make" / "options") as infile:
         makefilesource = infile.read()
-    specials = []
-    makefilesource = commentRemover(
-        makefilesource
-    )  # todo: do we need the commentremover?
-    if "include $(GENERAL_RULES)/CGAL" in makefilesource:
-        makefilesource = makefilesource.replace("include $(GENERAL_RULES)/CGAL", "")
-        specials.append("CGAL")
-    if "${CGAL_LIBS}" in makefilesource:  # todo: special
-        makefilesource = makefilesource.replace("${CGAL_LIBS}", "")
-        specials.append("CGAL")
+    makefilesource = commentRemover(makefilesource)
 
     vardict = {
         "$(LIB_SRC)": path.relpath("src", wmake_dir),
@@ -87,11 +89,9 @@ def parse_options_file(wmake_dir):
         "$(FOAM_UTILITIES)": path.relpath("applications/utilities", wmake_dir),
         "$(FOAM_SOLVERS)": path.relpath("applications/solvers", wmake_dir),
         "POSIX_SRC_HACK": path.relpath("src/OSspecific/POSIX", wmake_dir),
-        "$(KAHIP_INC_DIR)": path.relpath(
+        "$(KAHIP_INC_DIR)": path.relpath(  # todo
             "src/dummyThirdParty/kahipDecomp/lnInclude", wmake_dir
         ),
-        # "$(OBJECTS_DIR)": path.relpath("build/linux64GccDPInt32Opt/src/OpenFOAM", wmake_dir), #todo: we should not rely on build/...
-        # "$(FOAM_LIBBIN)": path.relpath("platforms/linux64GccDPInt32Opt/lib", wmake_dir), #todo: we should not rely on platforms/...
         "$(GENERAL_RULES)": "wmake/rules/General",
     }
 
@@ -116,7 +116,7 @@ def parse_options_file(wmake_dir):
     vardict["$(EXE_LIBS)"] = vars[3]
     assert vars[0] == "" or vars[1] == ""
     assert vars[2] == "" or vars[3] == ""
-    return vardict, specials
+    return vardict
 
 
 @disccache
@@ -144,7 +144,6 @@ def preprocess_files_file(wmake_dir):
             "cpp",
             # "-traditional-cpp",
             "-DOPENFOAM=2006",
-            "-DWM_DP",  # todo: set this correctly
             wmake_dir / "Make" / "files",
         ],
     ).decode()
@@ -192,7 +191,6 @@ class FoamConfigSourcefile(GeneralizedSourcefile):
     pass
 
 
-# Todo: Check if name is unique
 @dataclass
 class Intermediate:
     srcs: T.List[GeneralizedSourcefile]
@@ -258,7 +256,7 @@ def parse_files_file(PROJECT_ROOT, wmake_dir, preprocessed):
             elif line.endswith(".L"):
                 assert "$" not in line
                 srcs.append(FlexgenSourcefile(PROJECT_ROOT / wmake_dir / line))
-            elif line == "global/foamConfig.Cver":  # todo special
+            elif line == "global/foamConfig.Cver":
                 srcs.append(FoamConfigSourcefile())
             elif (
                 line.endswith(".hpp")
@@ -306,56 +304,6 @@ def calc_includes(PROJECT_ROOT, wmake_dir, optionsdict) -> T.List[Include]:
                 recdir = abspath.parent
                 includes.append(RecursiveInclude(recdir))
                 continue
-                if INCLUDE_METHOD == "BUILD_LN":
-                    if recdir + "/lnInclude" in lnIncludes_to_be_generated:
-                        used_lnIncludes.add(os.path.normpath(str(abspath)))
-                        x = "lnInc_" + mangle_name(
-                            remove_prefix(recdir, str(PROJECT_ROOT) + "/")
-                        )
-                        assert (
-                            x
-                            != "lnInc_applications_slash_solvers_slash_stressAnalysis_slash_solidDisplacementFoam_slash_tractionDisplacement"
-                        )
-                        order_depends.append(
-                            "lnInc_"
-                            + mangle_name(
-                                remove_prefix(recdir, str(PROJECT_ROOT) + "/")
-                            )
-                        )
-                    else:
-                        # todo: warning
-                        pass
-                elif INCLUDE_METHOD == "PREBUILD_LN":
-                    if path.exists(str(abspath)):
-                        incdirs.append("'<PATH>" + str(abspath) + "</PATH>'")
-                        raise ValueError
-                    else:
-                        pass
-                        # TODO:
-                        # I would like to enable this warning, but
-                        # https://develop.openfoam.com/Development/openfoam/-/issues/1994 should
-                        # be resolved before this, otherwise we will get too many warning
-                        # print(
-                        #     "warning:",
-                        #     str(abspath),
-                        #     "does not exist",
-                        # )
-                        # show_debugging_help(arg)
-                elif INCLUDE_METHOD == "SINGLE":
-                    if path.exists(recdir):
-                        incdirs.append(
-                            "run_command(meson.source_root() + '/meson/rec_dirs.sh', '<PATH>"
-                            + recdir
-                            + "</PATH>', check: true).stdout().strip().split('\\n')"
-                        )
-                    else:
-                        print(
-                            "warning:",
-                            recdir,
-                            "does not exist",
-                        )
-                        show_debugging_help(arg)
-
             else:
                 includes.append(NonRecursiveInclude(abspath))
                 continue
@@ -404,8 +352,7 @@ def calc_libs(optionsdict, typ: TargetType) -> T.List[Include]:
                 "-Wl,-rpath",
                 "-Wl,/usr/lib",
                 "-Wl,--enable-new-dtags",
-            ]:  # todo special
-                # These flags orignate from the line
+            ]:  # These flags orignate from the line
                 # PLIBS   = $(shell mpicc --showme:link)
                 # in wmake/rules/General/mpi-mpicc-openmpi
                 # I don't really know what these flags do, but I think we would notice it if it would be necessary.
@@ -416,20 +363,13 @@ def calc_libs(optionsdict, typ: TargetType) -> T.List[Include]:
                 continue
 
             el = remove_prefix(el, "-l")
-            # todo special
             flag = True
             for lib in [
                 "boost_system",
                 "fftw3",
                 "mpi",
                 "z",
-                "CGAL",
-                "mpfr",
-                "gmp",
-                "kahip",
-                "metis",
-                "scotch",
-            ]:
+            ] + list(optional_deps.keys()):
                 if el == lib:
                     dependencies.append(lib.lower() + "_dep")
                     flag = False

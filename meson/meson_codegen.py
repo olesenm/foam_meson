@@ -2,6 +2,7 @@
 # generate_meson_build.py gives the recipes we want to build to this file. This file then sorts them, makes the paths relative and as short as possible (e.g. abc/../abc is just abc), splits the recipes among different meson.build files and finally writes it out to disk.
 # Grep for EXPLAIN_CODEGEN will help you understand it
 
+DRYRUN = False
 
 import os
 import re
@@ -12,9 +13,7 @@ from pathlib import Path
 import typing as T
 from dataclasses import dataclass
 
-# make sure that it will not create files outside of the project root
-dryrun = False
-if dryrun:
+if DRYRUN:
     print("##################### WARNING: DRYRUNNING ################################")
 
 
@@ -121,6 +120,26 @@ class BuildDesc:
             node.provides not in self.elements
         ), "you cannot have multiple targets with the same name: " + str(node.provides)
         self.elements[node.provides] = node
+
+    def remove_what_depends_on(self, broken_provides: T.List[str]):
+        for el in broken_provides:
+            assert el not in self.elements
+        ar = list(self.elements.keys()) + list(set(broken_provides))
+        broken_provides = set(broken_provides)
+        while True:
+            oldlen = len(broken_provides)
+            broken_provides.update(
+                [
+                    k
+                    for k, v in self.elements.items()
+                    if not set(v.ddeps).isdisjoint(broken_provides)
+                ]
+            )
+            if len(broken_provides) == oldlen:
+                break
+        self.elements = {
+            k: v for k, v in self.elements.items() if k not in broken_provides
+        }
 
     def starts_with(self, subgroup, outpath):
         depth = len(subgroup)
@@ -288,14 +307,13 @@ class BuildDesc:
         for dir in entries:
             self.writer_recursion(generated_files, subgroup + [dir])
 
-    # todo: verify that this will never write outside of the project directory
     def writeToFileSystem(self):
         generated_files = {}
         self.writer_recursion(generated_files, [])
         return generated_files
 
     def writef(self, path, data):
-        if dryrun:
+        if DRYRUN:
             return
         assert os.path.normpath(path).startswith(str(self.root) + "/")
         with open(path, "w") as ofile:
