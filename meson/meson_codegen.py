@@ -236,7 +236,15 @@ class BuildDesc:
                 if pkey not in mixed_deps:
                     mixed_deps[pkey] = set()
                 mixed_deps[pkey].update(self.generalised_deps(subgroup, el))
-        ts = graphlib.TopologicalSorter(mixed_deps)
+        # Sorting is not necessary, but it makes the output deterministic, which allows for easier delta testing
+        mixed_deps_sorted = dict(
+            sorted(mixed_deps.items(), key=lambda item: str(item[0]))
+        )
+        mixed_deps_sorted = {
+            k: sorted(v, key=lambda item: str(item))
+            for k, v in mixed_deps_sorted.items()
+        }
+        ts = graphlib.TopologicalSorter(mixed_deps_sorted)
         try:
             order = tuple(ts.static_order())
         except graphlib.CycleError as ex:
