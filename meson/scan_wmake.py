@@ -281,28 +281,20 @@ def parse_files_file(PROJECT_ROOT, wmake_dir, preprocessed):
     )
 
 
-def calc_includes(PROJECT_ROOT, wmake_dir, optionsdict) -> T.List[Include]:
+def calc_includes_and_flags(
+    PROJECT_ROOT, wmake_dir, optionsdict
+) -> T.Tuple[T.List[Include], T.List[str]]:
     includes: T.List[Include] = [
         NonRecursiveInclude(PROJECT_ROOT / wmake_dir),
     ]
+    compile_flags: T.List[str] = []
     for inckey in ["$(EXE_INC)", "$(LIB_INC)"]:
         for arg in optionsdict[inckey].split(" "):
             el = arg.lstrip()
             if el == "":
                 continue
-            if el.startswith("-D"):
-                print(f"arg: {el} {wmake_dir}")
-                # todo
-                if el.removeprefix("-D").split("=")[0] in [
-                    "WM_ARCH",
-                    "WM_COMPILER",
-                    "WM_COMPILE_OPTION",
-                    "WM_OPTIONS",
-                ]:
-                    pass
-                pass
-            elif el in ["-g", "-O0", "-Wno-old-style-cast"]:
-                pass
+            if el.startswith("-D") or el in ["-g", "-O0", "-Wno-old-style-cast"]:
+                compile_flags.append(el)
             elif el.startswith("-I"):
                 if "$" in el:
                     print(dirpath, "warning: unresolved variable in ", el)
@@ -334,7 +326,7 @@ def calc_includes(PROJECT_ROOT, wmake_dir, optionsdict) -> T.List[Include]:
     includes.append(RecursiveInclude(PROJECT_ROOT / wmake_dir)),
     includes.append(RecursiveInclude(PROJECT_ROOT / "src" / "OpenFOAM"))
     includes.append(RecursiveInclude(PROJECT_ROOT / "src" / "OSspecific" / "POSIX"))
-    return includes
+    return includes, compile_flags
 
 
 def calc_libs(optionsdict, typ: TargetType) -> T.List[Include]:

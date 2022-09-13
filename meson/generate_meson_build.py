@@ -175,7 +175,7 @@ def wmake_to_meson(PROJECT_ROOT, wmake_dir, preprocessed, parsed_options):
     dirpath = wmake_dir / "Make"
     optionsdict = parsed_options
     inter = parse_files_file(PROJECT_ROOT, wmake_dir, preprocessed)
-    includes = calc_includes(PROJECT_ROOT, wmake_dir, optionsdict)
+    includes, cpp_args = calc_includes_and_flags(PROJECT_ROOT, wmake_dir, optionsdict)
     order_depends, dependencies = calc_libs(optionsdict, inter.typ)
 
     template_part_1 = ""
@@ -252,7 +252,6 @@ def wmake_to_meson(PROJECT_ROOT, wmake_dir, preprocessed, parsed_options):
         ["lnInclude_hack"] + other_srcs + [f"'<PATH>{x}</PATH>'" for x in files_srcs]
     )
 
-    cpp_args = []
     for include in includes:
         match include:
             case NonRecursiveInclude(path):
@@ -271,36 +270,6 @@ def wmake_to_meson(PROJECT_ROOT, wmake_dir, preprocessed, parsed_options):
                     print(f"Warning: {path} does not exist")
             case _:
                 raise NotImplemented
-
-    # todo: those flags should get set automatically
-    if wmake_dir in [
-        PROJECT_ROOT / "applications/utilities/surface/surfaceBooleanFeatures",
-        PROJECT_ROOT
-        / "applications/utilities/surface/surfaceBooleanFeatures/PolyhedronReader",
-        PROJECT_ROOT
-        / "applications/utilities/mesh/generation/foamyMesh/foamyHexMeshBackgroundMesh",
-        PROJECT_ROOT / "applications/utilities/mesh/generation/foamyMesh/foamyQuadMesh",
-        PROJECT_ROOT
-        / "applications/utilities/mesh/generation/foamyMesh/conformalVoronoiMesh/Make/options",
-        PROJECT_ROOT
-        / "applications/utilities/mesh/generation/foamyMesh/cellSizeAndAlignmentGrid",
-    ]:
-        cpp_args.append("'-DNDEBUG'")
-
-    if wmake_dir in [
-        PROJECT_ROOT
-        / "applications/utilities/mesh/generation/foamyMesh/conformalVoronoiMesh/Make/options",
-        PROJECT_ROOT
-        / "applications/utilities/mesh/generation/foamyMesh/cellSizeAndAlignmentGrid",
-    ]:
-        cpp_args.append("'-DCGAL_INEXACT'")
-
-    if (
-        wmake_dir
-        == PROJECT_ROOT
-        / "applications/utilities/mesh/generation/foamyMesh/foamyHexMeshSurfaceSimplify"
-    ):
-        cpp_args.append("'-DUNIX'")
 
     template += f"""
     srcfiles = {fix_ws_inline(to_meson_array(srcs_quoted), 4, True)}
