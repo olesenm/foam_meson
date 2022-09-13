@@ -25,7 +25,7 @@ os.chdir("..")
 
 PROJECT_ROOT = Path(os.getcwd())
 
-assert os.environ["WM_PROJECT_DIR"] != "", "Did you forget sourcing etc/bashrc?"
+assert "WM_PROJECT_DIR" not in os.environ, "Don't source etc/bashrc"
 
 # see https://stackoverflow.com/questions/12217537/can-i-force-debugging-python-on-assertionerror
 def info(type, value, tb):
@@ -272,6 +272,36 @@ def wmake_to_meson(PROJECT_ROOT, wmake_dir, preprocessed, parsed_options):
             case _:
                 raise NotImplemented
 
+    # todo: those flags should get set automatically
+    if wmake_dir in [
+        PROJECT_ROOT / "applications/utilities/surface/surfaceBooleanFeatures",
+        PROJECT_ROOT
+        / "applications/utilities/surface/surfaceBooleanFeatures/PolyhedronReader",
+        PROJECT_ROOT
+        / "applications/utilities/mesh/generation/foamyMesh/foamyHexMeshBackgroundMesh",
+        PROJECT_ROOT / "applications/utilities/mesh/generation/foamyMesh/foamyQuadMesh",
+        PROJECT_ROOT
+        / "applications/utilities/mesh/generation/foamyMesh/conformalVoronoiMesh/Make/options",
+        PROJECT_ROOT
+        / "applications/utilities/mesh/generation/foamyMesh/cellSizeAndAlignmentGrid",
+    ]:
+        cpp_args.append("'-DNDEBUG'")
+
+    if wmake_dir in [
+        PROJECT_ROOT
+        / "applications/utilities/mesh/generation/foamyMesh/conformalVoronoiMesh/Make/options",
+        PROJECT_ROOT
+        / "applications/utilities/mesh/generation/foamyMesh/cellSizeAndAlignmentGrid",
+    ]:
+        cpp_args.append("'-DCGAL_INEXACT'")
+
+    if (
+        wmake_dir
+        == PROJECT_ROOT
+        / "applications/utilities/mesh/generation/foamyMesh/foamyHexMeshSurfaceSimplify"
+    ):
+        cpp_args.append("'-DUNIX'")
+
     template += f"""
     srcfiles = {fix_ws_inline(to_meson_array(srcs_quoted), 4, True)}
     rec_dirs_srcs = {fix_ws_inline(to_meson_array(rec_dirs_srcs_quoted), 4, True)}
@@ -303,10 +333,7 @@ def wmake_to_meson(PROJECT_ROOT, wmake_dir, preprocessed, parsed_options):
     elif is_subdir(PROJECT_ROOT / "src/OpenFOAM", wmake_dir):
         template += textwrap.dedent(
             """
-            if z_dep.found()
-                cpp_args += '-DHAVE_LIBZ'
-                dependencies += z_dep
-            endif
+            dependencies += z_dep
             """
         )
     elif is_subdir(

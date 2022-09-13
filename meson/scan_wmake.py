@@ -82,17 +82,16 @@ def parse_options_file(wmake_dir):
     with open(wmake_dir / "Make" / "options") as infile:
         makefilesource = infile.read()
     makefilesource = commentRemover(makefilesource)
+    makefilesource = makefilesource.replace("include $(GENERAL_RULES)/mpi-rules", "")
 
     vardict = {
         "$(LIB_SRC)": path.relpath("src", wmake_dir),
         "${LIB_SRC}": path.relpath("src", wmake_dir),
         "$(FOAM_UTILITIES)": path.relpath("applications/utilities", wmake_dir),
         "$(FOAM_SOLVERS)": path.relpath("applications/solvers", wmake_dir),
-        "POSIX_SRC_HACK": path.relpath("src/OSspecific/POSIX", wmake_dir),
-        # "$(KAHIP_INC_DIR)": path.relpath(
-        #     "src/dummyThirdParty/kahipDecomp/lnInclude", wmake_dir
-        # ),
         "$(GENERAL_RULES)": "wmake/rules/General",
+        "$(PLIBS)": "-lmpi",
+        "$(PFLAGS)": "-DMPICH_SKIP_MPICXX -DOMPI_SKIP_MPICXX",
     }
 
     with tempfile.NamedTemporaryFile("w") as makeout:
@@ -105,7 +104,9 @@ def parse_options_file(wmake_dir):
         makeout.flush()
         vars = (
             subprocess.check_output(
-                "make -s print_stuff --file " + makeout.name, shell=True
+                "make -s print_stuff --file " + makeout.name,
+                shell=True,
+                # env={"PATH": os.environ["PATH"]},
             )
             .decode()
             .split("\n")
@@ -289,33 +290,47 @@ def calc_includes(PROJECT_ROOT, wmake_dir, optionsdict) -> T.List[Include]:
             el = arg.lstrip()
             if el == "":
                 continue
-            if not el.startswith("-I"):
-                continue
-            if "$" in el:
-                print(dirpath, "warning: unresolved variable in ", el)
-                continue
-            el = remove_prefix(el, "-I")
-            if os.path.isabs(el):
-                abspath = Path(el)
-            else:
-                abspath = PROJECT_ROOT / wmake_dir / el
-                abspath = Path(os.path.normpath(str(abspath)))
-            if abspath.parts[-1] == "lnInclude":
-                recdir = abspath.parent
-                includes.append(RecursiveInclude(recdir))
-                continue
-            else:
-                includes.append(NonRecursiveInclude(abspath))
-                continue
-                if path.exists(abspath):
-                    incdirs.append("'<PATH>" + str(abspath) + "</PATH>'")
+            if el.startswith("-D"):
+                print(f"arg: {el} {wmake_dir}")
+                # todo
+                if el.removeprefix("-D").split("=")[0] in [
+                    "WM_ARCH",
+                    "WM_COMPILER",
+                    "WM_COMPILE_OPTION",
+                    "WM_OPTIONS",
+                ]:
+                    pass
+                pass
+            elif el in ["-g", "-O0", "-Wno-old-style-cast"]:
+                pass
+            elif el.startswith("-I"):
+                if "$" in el:
+                    print(dirpath, "warning: unresolved variable in ", el)
+                    continue
+                el = remove_prefix(el, "-I")
+                if os.path.isabs(el):
+                    abspath = Path(el)
                 else:
-                    print(
-                        "warning:",
-                        abspath,
-                        "does not exist",
-                    )
-                    show_debugging_help(arg)
+                    abspath = PROJECT_ROOT / wmake_dir / el
+                    abspath = Path(os.path.normpath(str(abspath)))
+                if abspath.parts[-1] == "lnInclude":
+                    recdir = abspath.parent
+                    includes.append(RecursiveInclude(recdir))
+                    continue
+                else:
+                    includes.append(NonRecursiveInclude(abspath))
+                    continue
+                    if path.exists(abspath):
+                        incdirs.append("'<PATH>" + str(abspath) + "</PATH>'")
+                    else:
+                        print(
+                            "warning:",
+                            abspath,
+                            "does not exist",
+                        )
+                        show_debugging_help(arg)
+            else:
+                raise NotImplementedError("Unknown compiler flag")
     includes.append(RecursiveInclude(PROJECT_ROOT / wmake_dir)),
     includes.append(RecursiveInclude(PROJECT_ROOT / "src" / "OpenFOAM"))
     includes.append(RecursiveInclude(PROJECT_ROOT / "src" / "OSspecific" / "POSIX"))
@@ -373,6 +388,10 @@ def calc_libs(optionsdict, typ: TargetType) -> T.List[Include]:
                 if el == lib:
                     dependencies.append(lib.lower() + "_dep")
                     flag = False
-            if flag and el not in ["scotcherrexit", "ptscotch", "ptscotcherrexit"]:
+            if flag and el not in [
+                "scotcherrexit",
+                "ptscotch",
+                "ptscotcherrexit",
+            ]:  # todo remote the "el not in ..." stuff
                 order_depends.append("lib_" + mangle_name(el))
     return order_depends, dependencies

@@ -72,6 +72,9 @@ executable('exename', srcfiles, ...)
 - mv ~/Sync/git/openfoam some\ dir\ with\ spaces ; cd some\ dir\ with\ spaces ; meson setup builddir; ninja -C builddir
 - Doxygen
 - rg FOAM_MPI
+- rg ${ROUNDING_MATH}
+- rg {c++LESSWARN}
+- rg $(FASTDUALOCTREE_SRC_PATH)
 - Compiling other OpenFoam versions
 - The following should be tested often, because their -I and -l flags are easy to get wrong.
     - ninja buoyantBoussinesqPimpleFoam.p/applications_solvers_heatTransfer_buoyantBoussinesqPimpleFoam_buoyantBoussinesqPimpleFoam.cpp.o
