@@ -62,27 +62,27 @@ executable('exename', srcfiles, ...)
 ```
 
 # Todo
+- Compiling other OpenFoam versions
 - build scotch if it is not installed
-- Uninstall cgal, scotch, kahip, zoltan, mgridgen and check if the build still works
+- Uninstall mpi, cgal, scotch, kahip, zoltan, mgridgen and check if the build still works
 - Run the unit tests
 - make sure everything gets installed at the same path as with wmake
 - Make sure the OpenFOAM tutorial works
+- run verify_data.py
 - mv ~/Sync/git/openfoam some\ dir\ with\ spaces ; cd some\ dir\ with\ spaces ; meson setup builddir; ninja -C builddir
-- Doxygen
-- rg FOAM_MPI
-- rg ${ROUNDING_MATH}
-- rg {c++LESSWARN}
-- rg $(FASTDUALOCTREE_SRC_PATH)
-- Compiling other OpenFoam versions
 - The following should be tested often, because their -I and -l flags are easy to get wrong.
     - ninja buoyantBoussinesqPimpleFoam.p/applications_solvers_heatTransfer_buoyantBoussinesqPimpleFoam_buoyantBoussinesqPimpleFoam.cpp.o
     - ninja libfieldFunctionObjects.so.p/src_functionObjects_field_PecletNo_PecletNo.cpp.o
     - ninja correctBoundaryConditions
 
-## Checklist
-- run verify_data.py
-
 ## Maybe Never
+- Doxygen
+
+## Things that currently (seem to) make no problem
+- rg FOAM_MPI
+- rg ${ROUNDING_MATH}
+- rg {c++LESSWARN}
+- rg $(FASTDUALOCTREE_SRC_PATH)
 
 ### Windows
 `src/Allwmake` contains:
