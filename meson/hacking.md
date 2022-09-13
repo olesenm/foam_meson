@@ -62,8 +62,6 @@ executable('exename', srcfiles, ...)
 ```
 
 # Todo
-- DOMPI_SKIP_MPICXX
-- findgrep options -- -D
 - build scotch if it is not installed
 - Uninstall cgal, scotch, kahip, zoltan, mgridgen and check if the build still works
 - Run the unit tests

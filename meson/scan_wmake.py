@@ -294,7 +294,7 @@ def calc_includes_and_flags(
             if el == "":
                 continue
             if el.startswith("-D") or el in ["-g", "-O0", "-Wno-old-style-cast"]:
-                compile_flags.append(el)
+                compile_flags.append(f"'{el}'")
             elif el.startswith("-I"):
                 if "$" in el:
                     print(dirpath, "warning: unresolved variable in ", el)
