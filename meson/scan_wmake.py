@@ -24,14 +24,18 @@ optional_deps = {
     "CGAL": "dep",
 }
 
-# Turns a string into a valid identifier that can be used as a variable name in meson.buil
+# Turns a string into a valid identifier that can be used as a variable name in meson.build
 def mangle_name(name):
     return name.replace("-", "_").replace("/", "_slash_")
 
 
+ACTIVATE_CACHE = True  # todo: disable before release
+
 # Kind of broken since it does not hash the function arguments
 def disccache(original_func):
     def new_func(*args, **kwargs):
+        if not ACTIVATE_CACHE:
+            return original_func(*args, **kwargs)
         fp = Path("disccache") / original_func.__name__
         if fp.exists():
             return pickle.load(open(fp, "rb"))
