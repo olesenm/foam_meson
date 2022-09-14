@@ -16,12 +16,16 @@ optional_deps = {
     "mpfr": "lib",
     "gmp": "lib",
     "metis": "lib",
-    "zoltan": "lib",
-    "mgrid": "lib",
-    "ccmio": "lib",
     "readline": "lib",
-    "kahip": "dep",
     "CGAL": "dep",
+    "zoltan": "broken",
+    "mgrid": "broken",
+    "ccmio": "broken",
+    "kahip": "broken",
+    "scotch": "broken",
+    "scotcherrexit": "broken",
+    "ptscotch": "broken",
+    "ptscotcherrexit": "broken",
 }
 
 # Turns a string into a valid identifier that can be used as a variable name in meson.build
@@ -379,10 +383,6 @@ def calc_libs(optionsdict, typ: TargetType) -> T.List[Include]:
                 "fftw3",
                 "mpi",
                 "z",
-                "scotch",
-                "scotcherrexit",
-                "ptscotch",
-                "ptscotcherrexit",
             ] + list(optional_deps.keys()):
                 dependencies.append(el.lower() + "_dep")
             else:

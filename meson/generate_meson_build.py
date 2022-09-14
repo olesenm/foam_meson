@@ -422,13 +422,15 @@ def main():
 
     optional_deps_joined = ""
     for name, typ in optional_deps.items():
-        if typ == "dep":
+        if typ in ["dep", "broken"]:
             func = "dependency"
         elif typ == "lib":
             func = "cppc.find_library"
         else:
             raise ValueError()
         varname = name.lower() + "_dep"
+        if typ == "broken":
+            name = ""
         optional_deps_joined += textwrap.dedent(
             f"""
         {varname} = {func}('{name}', required: false)
@@ -489,13 +491,6 @@ def main():
 
     thread_dep = dependency('threads')
     boost_system_dep = dependency('boost', modules : ['system'])
-
-    scotch_pro = cmake.subproject('scotch')
-    scotch_dep = scotch_pro.dependency('scotch')
-    scotcherrexit_dep = scotch_pro.dependency('scotcherrexit')
-    ptscotch_dep = scotch_pro.dependency('ptscotch')
-    ptscotcherrexit_dep = scotch_pro.dependency('ptscotcherrexit')
-
 
     lemonbin = executable('lemon', 'wmake/src/lemon.c', native: true)
 

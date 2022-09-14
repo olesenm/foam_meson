@@ -63,7 +63,6 @@ executable('exename', srcfiles, ...)
 
 # Todo
 - Compiling other OpenFoam versions
-- build scotch if it is not installed
 - write readme stuff
 - Uninstall mpi, cgal, scotch, kahip, zoltan, mgridgen and check if the build still works
 - Run the unit tests
@@ -105,4 +104,17 @@ case "$WM_COMPILER" in
     Pstream/Allwmake $targetType $*
     ;;
 esac
+```
+
+
+# Scotch Snippet
+```
+# Why aren't we affected by https://github.com/mesonbuild/meson/issues/10764 ?
+cmake_opts = cmake.subproject_options()
+cmake_opts.add_cmake_defines({{'CMAKE_POSITION_INDEPENDENT_CODE': true}})
+scotch_pro = cmake.subproject('scotch', options: cmake_opts)
+scotch_dep = scotch_pro.dependency('scotch')
+scotcherrexit_dep = scotch_pro.dependency('scotcherrexit')
+ptscotch_dep = scotch_pro.dependency('ptscotch')
+ptscotcherrexit_dep = scotch_pro.dependency('ptscotcherrexit')
 ```
