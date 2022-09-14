@@ -64,6 +64,7 @@ executable('exename', srcfiles, ...)
 # Todo
 - Compiling other OpenFoam versions
 - build scotch if it is not installed
+- write readme stuff
 - Uninstall mpi, cgal, scotch, kahip, zoltan, mgridgen and check if the build still works
 - Run the unit tests
 - make sure everything gets installed at the same path as with wmake

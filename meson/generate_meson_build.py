@@ -512,7 +512,11 @@ def main():
             run_command('date', check: true).stdout().split('\\n')[0] # To make sure that this target is rerun if meson is reconfigured. split('\\n')[0] is there because build.ninja would get a bit ugly otherwise.
             ])
 
-    regen_on_dir_change([{recursive_regen_dirs_joined}], recursive: true)
+    if meson.get_cross_property('hack_to_detect_forks_regen_on_dir_change', 0) == 1
+        regen_on_dir_change([{recursive_regen_dirs_joined}], recursive: true)
+    else
+        warning('Your meson version does not support regen_on_dir_change. Either get use the meson version from https://github.com/volker-weissmann/meson , or run "touch ' + meson.source_root() + '/meson.build" everytime you add a new source file. Otherwise you might get a stale build.')
+    endif
     """
     )
 
