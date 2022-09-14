@@ -490,8 +490,12 @@ def main():
     thread_dep = dependency('threads')
     boost_system_dep = dependency('boost', modules : ['system'])
 
-    #scotch_pro = cmake.subproject('scotch')
-    #scotch_dep = scotch_pro.dependency('scotch')
+    scotch_pro = cmake.subproject('scotch')
+    scotch_dep = scotch_pro.dependency('scotch')
+    scotcherrexit_dep = scotch_pro.dependency('scotcherrexit')
+    ptscotch_dep = scotch_pro.dependency('ptscotch')
+    ptscotcherrexit_dep = scotch_pro.dependency('ptscotcherrexit')
+
 
     lemonbin = executable('lemon', 'wmake/src/lemon.c', native: true)
 

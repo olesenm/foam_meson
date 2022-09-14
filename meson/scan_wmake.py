@@ -12,7 +12,6 @@ import os
 from meson_codegen import *
 from enum import Enum
 
-# todo: build scotch manually
 optional_deps = {
     "mpfr": "lib",
     "gmp": "lib",
@@ -22,7 +21,6 @@ optional_deps = {
     "ccmio": "lib",
     "readline": "lib",
     "kahip": "dep",
-    "scotch": "dep",
     "CGAL": "dep",
 }
 
@@ -372,19 +370,17 @@ def calc_libs(optionsdict, typ: TargetType) -> T.List[Include]:
 
             el = remove_prefix(el, "-l")
             flag = True
-            for lib in [
+            if el in [
                 "boost_system",
                 "fftw3",
                 "mpi",
                 "z",
-            ] + list(optional_deps.keys()):
-                if el == lib:
-                    dependencies.append(lib.lower() + "_dep")
-                    flag = False
-            if flag and el not in [
+                "scotch",
                 "scotcherrexit",
                 "ptscotch",
                 "ptscotcherrexit",
-            ]:  # todo remote the "el not in ..." stuff
+            ] + list(optional_deps.keys()):
+                dependencies.append(el.lower() + "_dep")
+            else:
                 order_depends.append("lib_" + mangle_name(el))
     return order_depends, dependencies
