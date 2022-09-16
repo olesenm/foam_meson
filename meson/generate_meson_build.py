@@ -273,10 +273,15 @@ def wmake_to_meson(PROJECT_ROOT, wmake_dir, preprocessed, parsed_options):
 
     template += f"""
     srcfiles = {fix_ws_inline(to_meson_array(srcs_quoted), 4, True)}
-    rec_dirs_srcs = {fix_ws_inline(to_meson_array(rec_dirs_srcs_quoted), 4, True)}
-    foreach dir : rec_dirs_srcs
-        srcfiles += run_command(meson.source_root() + '/meson/rec_C.sh', dir, check: true).stdout().strip().split('\\n')
-    endforeach
+    """
+    if len(rec_dirs_srcs_quoted) != 0:
+        template += f"""
+        rec_dirs_srcs = {fix_ws_inline(to_meson_array(rec_dirs_srcs_quoted), 8, True)}
+        foreach dir : rec_dirs_srcs
+            srcfiles += run_command(meson.source_root() + '/meson/rec_C.sh', dir, check: true).stdout().strip().split('\\n')
+        endforeach
+        """
+    template += f"""
     {fix_ws_inline(template_part_1, 4, False)}
     link_with = {fix_ws_inline(to_meson_array(order_depends), 4, True)}
     dependencies = {fix_ws_inline(to_meson_array(dependencies), 4, True)}
