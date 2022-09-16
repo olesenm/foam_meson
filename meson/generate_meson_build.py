@@ -440,13 +440,8 @@ def main():
         varname = name.lower() + "_dep"
         if typ == "broken":
             name = ""
-        optional_deps_joined += textwrap.dedent(
-            f"""
-        {varname} = {func}('{name}', required: false)
-        if not {varname}.found()
-            {varname} = disabler()
-        endif\
-        """
+        optional_deps_joined += (
+            f"\n{varname} = {func}('{name}', required: false, disabler: true)"
         )
 
     mainsrc = textwrap.dedent(
