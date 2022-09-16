@@ -356,6 +356,10 @@ def wmake_to_meson(PROJECT_ROOT, wmake_dir, preprocessed, parsed_options):
                 install: true,
             )
     """
+    if inter.typ == TargetType.lib:
+        template += f"""
+        pkg.generate({inter.varname})
+        """
 
     # required_optional_deps = set(dependencies) & set([ k.lower()+"_dep" for k in optional_deps.keys()])
     # if len(required_optional_deps) != 0:
@@ -443,10 +447,12 @@ def main():
     mainsrc = textwrap.dedent(
         f"""
     project('OpenFOAM', 'c', 'cpp',
+    version: run_command('meson' / 'get_version.sh', '.', check: true).stdout(),
     default_options : ['warning_level=0', 'b_lundef=false', 'b_asneeded=false'])
 
     cmake = import('cmake')
     fs = import('fs')
+    pkg = import('pkgconfig')
 
     cppc = meson.get_compiler('cpp')
 
