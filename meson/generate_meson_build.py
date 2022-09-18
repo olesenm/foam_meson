@@ -366,12 +366,6 @@ def wmake_to_meson(PROJECT_ROOT, wmake_dir, preprocessed, parsed_options):
         pkg.generate({inter.varname})
         """
 
-    # required_optional_deps = set(dependencies) & set([ k.lower()+"_dep" for k in optional_deps.keys()])
-    # if len(required_optional_deps) != 0:
-    #     template = textwrap.indent(template, "  ")
-    #     cond = " and ".join([el+".found()" for el in required_optional_deps])
-    #     template = f"if {cond}\n{template}endif\n"
-
     template = Template(str(template))
     template.make_absolute(PROJECT_ROOT / wmake_dir)
 
