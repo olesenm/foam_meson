@@ -177,9 +177,8 @@ class BuildDesc:
         return ret
 
     # Finds the reason why a directory depends directly on a file
-    def get_dep_reason_1(self, subgroup, dir_source, file_target):
+    def get_dep_reason_dir_file(self, subgroup, dir_source, file_target):
         depth = len(subgroup)
-        mixed_deps = {}
         for (key, el) in self.elements.items():
             if not self.starts_with(subgroup, el.outpath):
                 continue
@@ -192,7 +191,7 @@ class BuildDesc:
         raise ValueError
 
     # Finds the reason why a file depends directly on a directory
-    def get_dep_reason_2(self, subgroup, file_source, dir_target):
+    def get_dep_reason_file_dir(self, subgroup, file_source, dir_target):
         depth = len(subgroup)
         el = self.elements[file_source]
         for dep in el.ddeps:
@@ -207,9 +206,8 @@ class BuildDesc:
         return None
 
     # Finds the reason why a directory depends directly on a directory
-    def get_dep_reason_3(self, subgroup, dir_source, dir_target):
+    def get_dep_reason_dir_dir(self, subgroup, dir_source, dir_target):
         depth = len(subgroup)
-        mixed_deps = {}
         for (key, el) in self.elements.items():
             if not self.starts_with(subgroup, el.outpath):
                 continue
@@ -218,7 +216,7 @@ class BuildDesc:
             if Path(el.outpath[depth]) != dir_source:
                 continue
 
-            ret = self.get_dep_reason_2(subgroup, key, dir_target)
+            ret = self.get_dep_reason_file_dir(subgroup, key, dir_target)
             if ret is not None:
                 return (key, ret)
         raise ValueError
@@ -259,27 +257,28 @@ class BuildDesc:
                 print(" " * len("depends on: "), end="")
                 if isinstance(cycle[i], Path) and isinstance(cycle[i + 1], str):
                     print(
-                        self.get_dep_reason_1(subgroup, cycle[i], cycle[i + 1]),
+                        self.get_dep_reason_dir_file(subgroup, cycle[i], cycle[i + 1]),
                         end=" in ",
                     )
                 elif isinstance(cycle[i], Path) and isinstance(cycle[i + 1], Path):
                     print(
-                        self.get_dep_reason_3(subgroup, cycle[i], cycle[i + 1])[0],
+                        self.get_dep_reason_dir_dir(subgroup, cycle[i], cycle[i + 1])[
+                            0
+                        ],
                         end=" in ",
                     )
-
                 print(cycle[i])
-
                 print("depends on: ", end="")
-
                 if isinstance(cycle[i], str) and isinstance(cycle[i + 1], Path):
                     print(
-                        self.get_dep_reason_2(subgroup, cycle[i], cycle[i + 1]),
+                        self.get_dep_reason_file_dir(subgroup, cycle[i], cycle[i + 1]),
                         end=" in ",
                     )
                 elif isinstance(cycle[i], Path) and isinstance(cycle[i + 1], Path):
                     print(
-                        self.get_dep_reason_3(subgroup, cycle[i], cycle[i + 1])[1],
+                        self.get_dep_reason_dir_dir(subgroup, cycle[i], cycle[i + 1])[
+                            1
+                        ],
                         end=" in ",
                     )
                 print(cycle[i + 1])

@@ -118,3 +118,27 @@ scotcherrexit_dep = scotch_pro.dependency('scotcherrexit')
 ptscotch_dep = scotch_pro.dependency('ptscotch')
 ptscotcherrexit_dep = scotch_pro.dependency('ptscotcherrexit')
 ```
+
+# Grouped Topological Sort Algorithm
+
+## Problem description of the Topological sort
+Given an DAG, i.e.
+a: b c
+b: c k
+
+Find an order of the elements that does not conflict with the order of the DAG, i.e.
+a b c k
+or
+a b k c
+would be valid solutions to this DAG.
+If there are cycles (i.e. our DAG is not a DAG), there are no valid solutions and we should error out.
+
+## Problem description of the Grouped Topological sort
+We are given an DAG, and a tree. The elements of the DAG are the leaves of the tree.
+Like in the topological sort problem, we consider a solution valid if and only if it does not conflict with the order of the DAG. Unlike the topological sort problem we consider some solutions to be better than other solutions: Ideally, we want branches grouped together in the solution.
+
+This is not always possible. Counter Example:
+todo
+
+
+What is our cost function?

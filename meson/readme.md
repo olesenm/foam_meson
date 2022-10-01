@@ -3,8 +3,14 @@
 ## How to build
 
 ```bash
-meson setup builddir #todo volkers meson fork is needed
-meson compile -C builddir
+cd /some/path
+git clone https://github.com/Volker-Weissmann/meson
+cd /some/other/path
+git clone https://develop.openfoam.com/Development/openfoam
+cd openfoam
+/some/path/meson/meson.py setup builddir
+cd builddir
+ninja
 ```
 
 Note that `source etc/bashrc` is not needed.
