@@ -326,8 +326,7 @@ class BuildDesc:
         if DRYRUN:
             return
         assert os.path.normpath(path).startswith(str(self.root) + "/")
-        with open(path, "w") as ofile:
-            ofile.write(data)
+        path.write_text(data)
 
 
 def largest_commons_prefix(paths):

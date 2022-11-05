@@ -85,8 +85,7 @@ def commentRemover(text):
 
 
 def parse_options_file(wmake_dir):
-    with open(wmake_dir / "Make" / "options") as infile:
-        makefilesource = infile.read()
+    makefilesource = (wmake_dir / "Make" / "options").read_text()
     makefilesource = commentRemover(makefilesource)
     makefilesource = makefilesource.replace("include $(GENERAL_RULES)/mpi-rules", "")
 
@@ -145,23 +144,45 @@ class NonRecursiveInclude(Include):
     path: Path
 
 
+hardcoded_precision = """
+#if !defined(WM_DP)
+primitives/Vector/doubleVector/doubleVector.C
+primitives/Tensor/doubleTensor/doubleTensor.C
+#endif
+#if !defined(WM_SP) && !defined(WM_SPDP)
+primitives/Vector/floatVector/floatVector.C
+primitives/Tensor/floatTensor/floatTensor.C
+#endif
+"""
+
+
 def preprocess_files_file(wmake_dir):
-    preprocessed = subprocess.check_output(
-        [
-            "cpp",
-            # "-traditional-cpp",
-            "-DOPENFOAM=2006",
-            wmake_dir / "Make" / "files",
-        ],
-    ).decode()
-    preprocessed = "\n".join(
+    specials = []
+    src = (wmake_dir / "Make" / "files").read_text()
+    if hardcoded_precision in src:
+        specials.append("precision")
+        src = src.replace(hardcoded_precision, "\n")
+    assert "defined" not in src
+    with tempfile.NamedTemporaryFile("w") as tmp:
+        tmp.write(src)
+        tmp.flush()
+        # tmp.name,
+        files_list = subprocess.check_output(
+            [
+                "cpp",
+                # "-traditional-cpp",
+                "-DOPENFOAM=2006",
+                tmp.name,
+            ],
+        ).decode()
+    files_list = "\n".join(
         [
             line.rstrip()
-            for line in preprocessed.split("\n")
+            for line in files_list.split("\n")
             if not line.startswith("#") and not line.rstrip() == ""
         ]
     )
-    return preprocessed
+    return files_list, specials
 
 
 @disccache
@@ -214,12 +235,12 @@ def substitute(vardict, cur):
             return cur
 
 
-def parse_files_file(PROJECT_ROOT, wmake_dir, preprocessed):
+def parse_files_file(PROJECT_ROOT, wmake_dir, files_list):
     srcs = []
     varname = None
     typ = None
     vardict = {}
-    for line in preprocessed.split("\n"):
+    for line in files_list.split("\n"):
         if line.startswith("EXE"):
             line = remove_prefix(line, "EXE")
             line = remove_prefix(line, "=")

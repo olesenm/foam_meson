@@ -43,7 +43,7 @@ def info(type, value, tb):
         pdb.pm()
 
 
-sys.excepthook = info
+sys.excepthook = info  # Todo: disable before release
 
 # attempting to add a target with one of these names needs to fail immediately to avoid confusing with system libraries
 target_blacklist = ["lib_boost_system", "lib_fftw3", "lib_mpi", "lib_z"]
@@ -174,46 +174,25 @@ class WhitespaceFixer:
 def wmake_to_meson(PROJECT_ROOT, wmake_dir, preprocessed, parsed_options):
     dirpath = wmake_dir / "Make"
     optionsdict = parsed_options
-    inter = parse_files_file(PROJECT_ROOT, wmake_dir, preprocessed)
+    files_list, files_specials = preprocessed
+    inter = parse_files_file(PROJECT_ROOT, wmake_dir, files_list)
     includes, cpp_args = calc_includes_and_flags(PROJECT_ROOT, wmake_dir, optionsdict)
     order_depends, dependencies = calc_libs(optionsdict, inter.typ)
 
     template_part_1 = ""
-    if wmake_dir == PROJECT_ROOT / "src/OpenFOAM":
-        inter.srcs.remove(
-            SimpleSourcefile(
-                PROJECT_ROOT
-                / "src/OpenFOAM/primitives/Vector/doubleVector/doubleVector.C"
-            )
-        )
-        inter.srcs.remove(
-            SimpleSourcefile(
-                PROJECT_ROOT
-                / "src/OpenFOAM/primitives/Tensor/doubleTensor/doubleTensor.C"
-            )
-        )
-        inter.srcs.remove(
-            SimpleSourcefile(
-                PROJECT_ROOT
-                / "src/OpenFOAM/primitives/Vector/floatVector/floatVector.C"
-            )
-        )
-        inter.srcs.remove(
-            SimpleSourcefile(
-                PROJECT_ROOT
-                / "src/OpenFOAM/primitives/Tensor/floatTensor/floatTensor.C"
-            )
-        )
-        template_part_1 = f"""
-        dp_add = files('primitives/Vector/doubleVector/doubleVector.C', 'primitives/Tensor/doubleTensor/doubleTensor.C')
-        sp_add = files('primitives/Vector/floatVector/floatVector.C', 'primitives/Tensor/floatTensor/floatTensor.C')
-        if get_option('WM_PRECISION_OPTION') != 'DP'
-            srcfiles += dp_add
-        elif get_option('WM_PRECISION_OPTION') != 'SP' and get_option('WM_PRECISION_OPTION') != 'SPDP'
-            srcfiles += sp_add
-        endif
-        """
-        pass
+    for el in files_specials:
+        if el == "precision":
+            template_part_1 = f"""
+            dp_add = files('primitives/Vector/doubleVector/doubleVector.C', 'primitives/Tensor/doubleTensor/doubleTensor.C')
+            sp_add = files('primitives/Vector/floatVector/floatVector.C', 'primitives/Tensor/floatTensor/floatTensor.C')
+            if get_option('WM_PRECISION_OPTION') != 'DP'
+                srcfiles += dp_add
+            elif get_option('WM_PRECISION_OPTION') != 'SP' and get_option('WM_PRECISION_OPTION') != 'SPDP'
+                srcfiles += sp_add
+            endif
+            """
+        else:
+            raise ValueError(f"Unknown special: {el}")
 
     template = WhitespaceFixer()
 
@@ -388,6 +367,14 @@ def is_subdir(parent, child):
     return str(child).startswith(os.path.abspath(str(parent)) + os.sep)
 
 
+from json import JSONEncoder
+
+
+class MyEncoder(JSONEncoder):
+    def default(self, o):
+        return o.__dict__
+
+
 def main():
     with open("meson/data.yaml", "r") as stream:
         yamldata = yaml.safe_load(stream)
@@ -550,18 +537,27 @@ def main():
 
     # Without these fixes, grouping cannot be done
 
-    totdesc.elements["lib_lagrangianTurbulence"].outpath = Path("src").parts
-    totdesc.elements["lib_lagrangianIntermediate"].outpath = Path("src").parts
-    totdesc.elements["lib_lagrangianSpray"].outpath = Path("src").parts
-    totdesc.elements["lib_coalCombustion"].outpath = Path("src").parts
-    totdesc.elements["lib_turbulenceModels"].outpath = Path("src").parts
-    totdesc.elements["lib_snappyHexMesh"].outpath = Path("src").parts
-    totdesc.elements["lib_compressibleTurbulenceModels"].outpath = Path("src").parts
-    totdesc.elements["lib_turbulenceModelSchemes"].outpath = Path("src").parts
-    totdesc.elements["lib_radiationModels"].outpath = Path("src").parts
-    totdesc.elements["lib_compressibleTurbulenceModels"].outpath = Path("src").parts
-    totdesc.elements["lib_liquidPropertiesFvPatchFields"].outpath = Path("src").parts
-    totdesc.elements["lib_geometricVoF"].outpath = Path("src").parts
+    # totdesc.elements["lib_lagrangianTurbulence"].outpath = Path("src").parts
+    # totdesc.elements["lib_lagrangianIntermediate"].outpath = Path("src").parts
+    # totdesc.elements["lib_lagrangianSpray"].outpath = Path("src").parts
+    # totdesc.elements["lib_coalCombustion"].outpath = Path("src").parts
+    # totdesc.elements["lib_turbulenceModels"].outpath = Path("src").parts
+    # totdesc.elements["lib_snappyHexMesh"].outpath = Path("src").parts
+    # totdesc.elements["lib_compressibleTurbulenceModels"].outpath = Path("src").parts
+    # totdesc.elements["lib_turbulenceModelSchemes"].outpath = Path("src").parts
+    # totdesc.elements["lib_radiationModels"].outpath = Path("src").parts
+    # totdesc.elements["lib_compressibleTurbulenceModels"].outpath = Path("src").parts
+    # totdesc.elements["lib_liquidPropertiesFvPatchFields"].outpath = Path("src").parts
+    # totdesc.elements["lib_geometricVoF"].outpath = Path("src").parts
+
+    import json
+
+    with open("data.json", "w", encoding="utf-8") as f:
+        json.dump(totdesc.elements, f, ensure_ascii=False, indent=4, cls=MyEncoder)
+    for el in totdesc.elements:
+        print(el)
+        # pdb.set_trace()
+    exit(1)
 
     generated_files = totdesc.writeToFileSystem()
 
