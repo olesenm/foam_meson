@@ -1,11 +1,12 @@
 use std::collections::HashSet;
 
 use enum_as_inner::EnumAsInner;
+use itertools::Itertools;
 type NodeIndex = petgraph::stable_graph::NodeIndex<petgraph::stable_graph::DefaultIx>;
 
 /// HoistsNeeded indicates which nodes need to be noisted
 /// All5 is an alternative format for this data.
-#[derive(Debug, EnumAsInner)]
+#[derive(Debug, Clone, EnumAsInner)]
 pub enum HoistsNeeded {
     Single(NodeIndex),
     Any(Vec<HoistsNeeded>),
@@ -157,27 +158,53 @@ fn flatten_all5(input: Vec<Vec<All1H>>) -> Any2H {
     Any2H(ret)
 }
 
-pub fn minimum_hoists_needed(cost: HoistsNeeded) {
-    let cost = all5_converter(cost);
-    dbg!(cost);
-    todo!();
+fn remove_node(all3: &mut All3, node: NodeIndex) {
+    for any2 in all3.0.iter_mut() {
+        for all1 in any2.0.iter_mut() {
+            all1.0.retain(|&ni| ni != node);
+        }
+    }
+    // Remove conditions that are now trivially fulfilled. E.g.
+    // Any2([
+    //         All1([NodeIndex(41)]),
+    //         All1([])
+    // ])
+    // Is trivially fulfilled.
+    all3.0
+        .retain(|all2| all2.0.iter().all(|all1| all1.0.len() != 0));
+}
 
-    cost.0
-        .iter()
-        .map(|any4| {
-            any4.0
-                .iter()
-                .map(|all3| flatten_all3(&all3).0)
-                .flatten()
-                .collect::<Vec<_>>()
-        })
-        .collect::<Vec<_>>();
-    // let val = cost.0[0]
-    //     .0
-    //     .iter()
-    //     .map(|all3| flatten_all3(&all3).0)
-    //     .flatten()
-    //     .collect::<Vec<_>>();
+/// Not an exact algorithm, but an approximation that is way
+/// faster than the fastest exact algorithm I can think of.
+pub fn minimum_hoists_needed_approx(node_count: usize, cost: HoistsNeeded) -> HashSet<NodeIndex> {
+    let mut all3 = all3_converter(cost);
+    let mut hoists_chosen = HashSet::new();
+    loop {
+        let mut occurences = vec![0; node_count];
+        for any2 in all3.0.iter() {
+            for all1 in any2.0.iter() {
+                if all1.0.len() == 1 {
+                    occurences[all1.0[0].index()] += 1;
+                }
+            }
+        }
+        let most_common_node = NodeIndex::new(occurences.iter().position_max().unwrap());
+        hoists_chosen.insert(most_common_node);
+        // The earlier we exit, the slower and more precise this function will be.
+        if occurences[most_common_node.index()] < 2 {
+            break;
+        }
+        remove_node(&mut all3, most_common_node);
+    }
+    for any2 in all3.0.iter() {
+        let minpos = any2.0.iter().position_min_by_key(|all1| all1.0.len());
+        if let Some(minpos) = minpos {
+            for &ni in &any2.0[minpos].0 {
+                hoists_chosen.insert(ni);
+            }
+        }
+    }
+    hoists_chosen
 }
 
 #[cfg(test)]

@@ -1,3 +1,31 @@
+//! This crate optimizes the following graph-theory like problem:
+//! This binary accepts json from stdin and outputs json to stdout. Example Usage:
+//! ```shell
+//! target/release/grouped_topo_sort << EOM
+//! [
+//!     {
+//!         "provides": "foo",
+//!         "ddeps": ["bar", "other"],
+//!         "ideal_path": ["top", "midShared", "bottom"]
+//!     },
+//!     {
+//!         "provides": "bar",
+//!         "ddeps": [],
+//!         "ideal_path": ["top", "midShared"]
+//!     },
+//!     {
+//!         "provides": "other",
+//!         "ddeps": ["bar"],
+//!         "ideal_path": ["top", "midOther"]
+//!     }
+//! ]
+//! EOM
+//! ```
+//! The array of these elements describes a directed graph and a tree:
+//! The directed graph has an edge from "foo" to "bar", and an edge from "foo" to "other".
+//! The tree has a leaf called "foo", whose parent is "bottomC", whose parent is "midK", whose parent is "topB".
+//! Note that "topB", "midK" and "bottomC" are neither nodes nor edges in the directed graph. If there is a "provides": "topB" somewhere, this name-clash is purely incidental, means nothing and is ignored.
+
 #![allow(dead_code)]
 #![allow(unused_macros)]
 #![allow(unused_variables)]
@@ -12,6 +40,7 @@ use petgraph::graph::Graph;
 // todo https://docs.rs/petgraph/latest/petgraph/#graph-types
 use graphalgs::generate::EdgeNumberError;
 use itertools::Itertools;
+use permute::permutations_of;
 use petgraph::prelude::*;
 use petgraph::visit::IntoNodeIdentifiers;
 use petgraph::visit::Visitable;
@@ -25,7 +54,10 @@ use std::collections::hash_map::RandomState;
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash; // Todo: Is BTreeMap faster?
 
+mod fixer;
+mod front_end_input;
 mod hoists;
+use fixer::*;
 use hoists::*;
 
 macro_rules! cast {
@@ -39,16 +71,9 @@ macro_rules! cast {
     }};
 }
 
-type ImportedData = HashMap<String, Target>;
-
-#[derive(Debug, Deserialize)]
-struct Target {
-    provides: String,
-    ddeps: Vec<String>,
-    outpath: Vec<String>,
-}
-
 type Context = i32;
+
+pub type DepGraph<'a> = BetterGraph<&'a TargetName, Node<'a>, ()>;
 
 #[derive(Debug)]
 struct FiniteValuesMap<'a> {
@@ -86,25 +111,25 @@ impl<'a> FiniteValuesMap<'a> {
 #[derive(Debug)]
 struct FinVal(i32);
 
-#[derive(Debug, Default, Clone)]
-struct Node<'a> {
-    provides: &'a str,
-    path: &'a [String],
+#[derive(Debug, Clone)]
+pub struct Node<'a> {
+    provides: &'a TargetName,
+    path: &'a [DirName],
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 struct EquivNode<'a> {
-    provides: &'a str,
-    path: &'a [String],
-    orig_path: &'a [String],
+    provides: &'a TargetName,
+    path: &'a [DirName],
+    orig_path: &'a [DirName],
 }
 
 type NodeIndex = petgraph::stable_graph::NodeIndex<petgraph::stable_graph::DefaultIx>;
 
 #[derive(Debug)]
-struct Tree<'a> {
-    subdirs: HashMap<&'a str, Tree<'a>>,
-    targets: Vec<NodeIndex>,
+pub struct Tree<'a> {
+    subdirs: HashMap<&'a DirName, Tree<'a>>,
+    targets: Vec<&'a TargetName>,
 }
 impl<'a> Tree<'a> {
     fn new() -> Self {
@@ -115,10 +140,28 @@ impl<'a> Tree<'a> {
     }
 }
 
-fn is_in_group(deps: &Graph<Node, ()>, node: NodeIndex, path: &[String]) -> bool {
-    let otherpath = deps.node_weight(node).unwrap().path;
+#[derive(Debug, Default, Hash, Eq, PartialEq)]
+pub struct TargetName(String);
+impl std::fmt::Display for TargetName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+// todo: equality operator could compare pointers
+
+#[derive(Debug, Hash, Eq, PartialEq)]
+pub struct DirName(String);
+impl std::fmt::Display for DirName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+fn is_in_group(deps: &DepGraph, node: NodeIndex, path: &[&DirName]) -> bool {
+    let otherpath = deps.graph.node_weight(node).unwrap().path;
     for i in 0..path.len() {
-        if path[i] != otherpath[i] {
+        if path[i] != &otherpath[i] {
             return false;
         }
     }
@@ -127,14 +170,14 @@ fn is_in_group(deps: &Graph<Node, ()>, node: NodeIndex, path: &[String]) -> bool
 
 // itaid = is there any indirect dependency
 
-fn itaid_from_node_to_folder(deps: &Graph<Node, ()>, start: NodeIndex, path: &[String]) -> bool {
-    let dfs = Dfs::new(deps, start);
-    dfs.iter(deps).any(|x| is_in_group(deps, x, path))
+fn itaid_from_node_to_folder(deps: &DepGraph, start: NodeIndex, path: &[&DirName]) -> bool {
+    let dfs = Dfs::new(&deps.graph, start);
+    dfs.iter(&deps.graph).any(|x| is_in_group(deps, x, path))
 }
 
-fn itaid_from_folder_to_folder(deps: &Graph<Node, ()>, start: &Tree, dest: &[String]) -> bool {
+fn itaid_from_folder_to_folder(deps: &DepGraph, start: &Tree, dest: &[&DirName]) -> bool {
     for el in &start.targets {
-        if itaid_from_node_to_folder(deps, *el, dest) {
+        if itaid_from_node_to_folder(deps, deps.get_node_index(*el), dest) {
             return true;
         }
     }
@@ -219,40 +262,6 @@ fn topo_sort_group_cycles<T>(dir_graph: &Graph<T, ()>) -> Vec<Vec<NodeIndex>> {
         .collect::<Vec<_>>()
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn test_find_cycles() {
-        let mut dir_graph = Graph::<&str, ()>::new();
-        let mut node_index_map: HashMap<&str, NodeIndex> = HashMap::new();
-        for key in ["a", "b", "c", "d", "e", "f"] {
-            node_index_map.insert(key, dir_graph.add_node(key));
-        }
-        for (key1, key2) in [
-            ("a", "b"),
-            ("b", "c"),
-            ("c", "d"),
-            ("d", "b"),
-            ("d", "e"),
-            ("d", "f"),
-            ("f", "b"),
-        ] {
-            dir_graph.update_edge(node_index_map[key1], node_index_map[key2], ());
-        }
-        let groups = group_cycles(&dir_graph);
-        assert!(groups.len() == 3);
-        assert!(groups.contains(&vec![node_index_map["a"]]));
-        assert!(groups.contains(&vec![
-            node_index_map["b"],
-            node_index_map["c"],
-            node_index_map["d"],
-            node_index_map["f"]
-        ]));
-        assert!(groups.contains(&vec![node_index_map["e"]]));
-    }
-}
-
 fn direct_equivalency(part: Graph<Node, ()>) -> Graph<EquivNode, ()> {
     part.map(
         |ni, n| EquivNode {
@@ -274,6 +283,7 @@ fn hoist_singles_upward(equiv: &mut Graph<EquivNode, ()>) {
                 .filter(|&x| &equiv[x].path == &equiv[ni].path)
                 .count()
                 == 1
+                && equiv[ni].path.len() != 0
             {
                 equiv[ni].path = &equiv[ni].path[..equiv[ni].path.len() - 1];
                 stale = false;
@@ -318,7 +328,7 @@ fn remove_top_elements(equiv: &mut Graph<EquivNode, ()>) {
     equiv.retain_nodes(|frozen, ni| frozen[ni].path.len() != 0);
 }
 
-fn shorten(dict: &Vec<&String>, long: &[String]) -> String {
+fn shorten(dict: &Vec<&DirName>, long: &[DirName]) -> String {
     // long.iter()
     //     .map(|x| {
     //         char::from_u32('a' as u32 + dict.iter().position(|y| y == &x.as_str()).unwrap() as u32)
@@ -326,12 +336,7 @@ fn shorten(dict: &Vec<&String>, long: &[String]) -> String {
     //     })
     //     .join(" ")
     long.iter()
-        .map(|x| {
-            format!(
-                "{: <2}",
-                dict.iter().position(|y| y == &x.as_str()).unwrap(),
-            )
-        })
+        .map(|x| format!("{: <2}", dict.iter().position(|y| y == &x).unwrap(),))
         .join(" ")
 }
 
@@ -400,40 +405,11 @@ fn remove_always_happy(equiv: &mut Graph<EquivNode, ()>) {
     }
 }
 
-fn plot(equiv: &Graph<EquivNode, ()>) {
-    // cargo run | dot -Tsvg > output.svg
-    let visu = equiv.map(
-        |ni, n| {
-            n.path
-                .iter()
-                .map(|x| match x.as_str() {
-                    "TurbulenceModels" => "T",
-                    "transportModels" => "M",
-                    "thermophysicalModels" => "t",
-                    "phaseSystemModels" => "p",
-                    "parallel" => "l",
-                    "decompose" => "d",
-                    "reconstruct" => "r",
-                    "regionModels" => "r",
-                    "multiphaseInter" => "m",
-                    "twoPhaseEuler" => "P",
-                    "twoPhaseInter" => "I",
-                    "reactingEuler" => "E",
-                    "lagrangian" => "l",
-                    _ => x,
-                })
-                .join(" ")
-        },
-        |_ei, &_e| _e,
-    );
-    println!("{:?}", Dot::with_config(&visu, &[Config::EdgeNoLabel]));
-}
-
 /// Returns what targets cannot build in their ideal path if we want to put subdir('a') before subdir('b')
 fn cost_of_dir_a_before_dir_b(
     equiv: &Graph<EquivNode, ()>,
-    dir_a: &str,
-    dir_b: &str,
+    dir_a: &DirName,
+    dir_b: &DirName,
 ) -> HoistsNeeded {
     let exists_path = |a, b, invert| -> bool {
         if invert {
@@ -446,7 +422,7 @@ fn cost_of_dir_a_before_dir_b(
         equiv
             .edge_references()
             .filter_map(|e| {
-                if equiv[e.source()].path[0] == dir_a && equiv[e.target()].path[0] == dir_b {
+                if &equiv[e.source()].path[0] == dir_a && &equiv[e.target()].path[0] == dir_b {
                     Some(HoistsNeeded::Any(
                         [(e.source(), dir_b, false), (e.target(), dir_a, true)]
                             .iter()
@@ -454,7 +430,7 @@ fn cost_of_dir_a_before_dir_b(
                                 let mut vec = equiv
                                     .node_indices()
                                     .filter(|&x| {
-                                        equiv[x].path[0] == *dir && exists_path(x, *ni, *invert)
+                                        equiv[x].path[0] == **dir && exists_path(x, *ni, *invert)
                                     })
                                     .collect::<Vec<_>>();
                                 vec.push(*ni);
@@ -474,7 +450,7 @@ fn cost_of_dir_a_before_dir_b(
     )
 }
 
-fn cost_to_break_circle(equiv: &Graph<EquivNode, ()>, cycle: Vec<&str>) -> HoistsNeeded {
+fn cost_to_break_circle(equiv: &Graph<EquivNode, ()>, cycle: Vec<&DirName>) -> HoistsNeeded {
     let mut cost = Vec::new();
     for i in 0..cycle.len() {
         let target_dir = cycle[i];
@@ -514,24 +490,92 @@ fn cost_to_break_circle(equiv: &Graph<EquivNode, ()>, cycle: Vec<&str>) -> Hoist
 
 fn find_all_cycles<NW>(dirgraph: &Graph<NW, ()>) {}
 
-struct MyGraph<NW: Eq + Hash + Copy, EW> {
+pub struct MyGraph<NW: Eq + Hash + Copy, EW> {
     graph: Graph<NW, EW>,
     node_map: HashMap<NW, NodeIndex>,
 }
 
 impl<NW: Eq + Hash + Copy, EW> MyGraph<NW, EW> {
+    fn add_node(&mut self, node: NW) {
+        assert!(!self.node_map.contains_key(&node));
+        let ni = self.graph.add_node(node);
+        self.node_map.insert(node, ni);
+    }
+    fn new() -> Self {
+        Self {
+            graph: Graph::<NW, EW>::new(),
+            node_map: HashMap::<NW, NodeIndex>::new(),
+        }
+    }
     fn from_nodes(nodes: &[NW]) -> Self {
-        assert!(nodes.iter().duplicates().next() == None);
         let mut this = Self {
             graph: Graph::<NW, EW>::new(),
             node_map: HashMap::<NW, NodeIndex>::new(),
         };
         for node in nodes {
-            let ni = this.graph.add_node(*node);
-            this.node_map.insert(*node, ni);
+            this.add_node(*node);
         }
         this
     }
+}
+
+pub struct BetterGraph<K: Eq + Hash, NW, EW> {
+    graph: Graph<NW, EW>,
+    node_map: HashMap<K, NodeIndex>,
+}
+
+impl<K: Eq + Hash, NW, EW> BetterGraph<K, NW, EW> {
+    fn get_node_index(&self, key: K) -> NodeIndex {
+        self.node_map[&key]
+    }
+    fn add_node(&mut self, node: NW, key: K) {
+        assert!(!self.node_map.contains_key(&key));
+        let ni = self.graph.add_node(node);
+        self.node_map.insert(key, ni);
+    }
+    fn new() -> Self {
+        Self {
+            graph: Graph::<NW, EW>::new(),
+            node_map: HashMap::<K, NodeIndex>::new(),
+        }
+    }
+
+    fn add_edge(&mut self, source: K, target: K, weight: EW) {
+        self.graph
+            .add_edge(self.node_map[&source], self.node_map[&target], weight);
+    }
+}
+
+fn print_time_complexity_note(n: usize) {
+    println!(
+        "We now run an algorithm with a time-complexity of O(n! n^2), with n = {}.",
+        n
+    );
+    let steps = (1..n)
+        .fold(1_usize, |acc, x| acc.checked_mul(x).unwrap())
+        .checked_mul(n.checked_pow(2).unwrap())
+        .unwrap();
+    println!(" -> {} steps.", steps);
+}
+
+fn cost_of_order(
+    node_count: usize,
+    cost_of_a_before_b: &Vec<Vec<HoistsNeeded>>,
+    order: &Vec<usize>,
+) -> usize {
+    let mut all = Vec::new();
+    for l in 0..(order.len() - 1) {
+        for r in (l + 1)..order.len() {
+            all.append(
+                &mut cost_of_a_before_b[order[l]][order[r]]
+                    .as_all()
+                    .unwrap()
+                    .clone(),
+            );
+        }
+    }
+    let all = HoistsNeeded::All(all);
+    minimum_hoists_needed_approx(node_count, all).len()
 }
 
 fn convert_to_equivalent_problem(part: Graph<Node, ()>) {
@@ -562,7 +606,7 @@ fn convert_to_equivalent_problem(part: Graph<Node, ()>) {
     // for dir in dirs {
     //     digraph.add_node();
     // }
-    let mut dirgraph = MyGraph::<&String, ()>::from_nodes(&dirs);
+    let mut dirgraph = MyGraph::<&DirName, ()>::from_nodes(&dirs);
 
     for x in 0..dirs.len() {
         for y in 0..dirs.len() {
@@ -584,150 +628,107 @@ fn convert_to_equivalent_problem(part: Graph<Node, ()>) {
     let cycles = graphalgs::elementary_circuits::elementary_circuits(&dirgraph.graph);
     let mut cost = Vec::new();
     for cycle in cycles {
-        let cycle = cycle
-            .iter()
-            .map(|x| dirs[x.index()].as_str())
-            .collect::<Vec<_>>();
+        let cycle = cycle.iter().map(|x| dirs[x.index()]).collect::<Vec<_>>();
         cost.push(cost_to_break_circle(&equiv, cycle));
     }
     let cost = HoistsNeeded::All(cost);
-    minimum_hoists_needed(cost);
-}
+    //minimum_hoists_needed(cost);
 
-fn find_problematic_subtrees(deps: &Graph<Node, ()>, total_tree: &Tree, prefix: Vec<String>) {
-    let mut dir_graph = Graph::<&str, ()>::new();
-    let mut node_index_map: HashMap<&str, NodeIndex> = HashMap::new();
-    let mut subtree = total_tree;
-    for el in &prefix {
-        subtree = &subtree.subdirs[el.as_str()];
+    print_time_complexity_note(dirs.len());
+
+    let cost_of_a_before_b = (0..dirs.len())
+        .map(|x| {
+            (0..dirs.len())
+                .map(|y| cost_of_dir_a_before_dir_b(&equiv, dirs[x], dirs[y]))
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+
+    let mut costs = Vec::new();
+    for order in permutations_of(&(0..dirs.len()).collect::<Vec<_>>()) {
+        let order = order.map(|x| *x).collect::<Vec<_>>();
+        costs.push((
+            order.clone(),
+            cost_of_order(equiv.node_count(), &cost_of_a_before_b, &order),
+        ));
     }
-    for (key, value) in &subtree.subdirs {
-        node_index_map.insert(key, dir_graph.add_node(key));
-    }
-    for (key1, value1) in &subtree.subdirs {
-        for (key2, value2) in &subtree.subdirs {
-            if key1 == key2 {
-                continue;
-            }
-            let mut combined = prefix.clone();
-            combined.push(key2.to_string());
-            if itaid_from_folder_to_folder(&deps, value1, &combined[..]) {
-                dir_graph.update_edge(node_index_map[key1], node_index_map[key2], ());
-            }
-        }
-    }
-    let sorted = topo_sort_group_cycles(&dir_graph);
-    for single_or_cycle in sorted {
-        if single_or_cycle.len() == 1 {
-            let mut combined = prefix.clone();
-            combined.push(dir_graph[single_or_cycle[0]].to_string());
-            find_problematic_subtrees(deps, total_tree, combined);
-        } else {
-            {
-                let mut combined = prefix.clone();
-                combined.push(dir_graph[single_or_cycle[0]].to_string());
-                find_problematic_subtrees(deps, total_tree, combined);
-            }
-            let interesting_nodes = single_or_cycle
-                .iter()
-                .map(|&dir_index| {
-                    let dir = dir_graph[dir_index];
-                    let mut combined = prefix.clone();
-                    combined.push(dir.to_string());
-                    deps.node_indices()
-                        .filter(move |&x| is_in_group(deps, x, &combined))
-                })
-                .flatten()
-                .collect::<Vec<_>>();
-            let mut part = (*deps).clone();
-            part.retain_nodes(|_, x| interesting_nodes.contains(&x));
-            convert_to_equivalent_problem(part);
-            // for &dir_index in &single_or_cycle {
-
-            //         .collect::<Vec<_>>();
-            //     dbg!(nodes_in_dir);
-            // }
-        }
-    }
-}
-
-pub fn random_digraph(nodes: u32, nedges: u32) -> Result<Vec<(u32, u32)>, &'static str> {
-    if nodes == 0 {
-        return Ok(Vec::new());
-    }
-
-    if nedges > nodes * (nodes - 1) {
-        return Err("Too many edges, too few nodes");
-    }
-
-    //let mut rng = rand::thread_rng();
-    let mut rng = StdRng::seed_from_u64(123);
-    let mut edges = Vec::with_capacity(nedges as usize);
-    let mut count = 0;
-
-    while count < nedges {
-        let i = rng.gen_range(0..nodes);
-        let j = rng.gen_range(0..nodes);
-
-        if i != j && !edges.contains(&(i, j)) {
-            edges.push((i, j));
-            count += 1;
+    for el in costs.iter() {
+        if el.1 <= 3 {
+            dbg!(&el.0.iter().map(|&i| dirs[i]).collect::<Vec<_>>());
         }
     }
 
-    Ok(edges)
+    dbg!(costs.iter().min_by_key(|el| el.1));
 }
 
 fn main() {
-    let file = std::fs::File::open("../../data.json").unwrap();
-    let reader = std::io::BufReader::new(file);
-    let dat: ImportedData = serde_json::from_reader(reader).unwrap();
-    let mut deps = Graph::<Node, ()>::new();
-    let mut root = Tree::new();
+    let mut owner = Vec::new();
+    let (deps, tree) = front_end_input::parse(&mut owner, std::io::stdin());
+    fixer::find_and_fix_problematic_subtrees(&deps, &tree, vec![]);
+}
 
-    let mut fvm = FiniteValuesMap::new();
-    let mut node_index_map: HashMap<&str, NodeIndex> = HashMap::new();
-    for (key, value) in &dat {
-        assert_eq!(key, &value.provides);
-        let node = deps.add_node(Node {
-            provides: key,
-            path: &value.outpath[..],
-        });
-        node_index_map.insert(&key, node);
-        fvm.add(&value.provides, 0);
-        let mut head = &mut root;
-        for dirname in &value.outpath {
-            // todo
-            // head = head.subdirs.entry(dirname).or_insert(Tree::new())
-            if !head.subdirs.contains_key(dirname.as_str()) {
-                head.subdirs.insert(dirname, Tree::new());
-            }
-            head = head.subdirs.get_mut(dirname.as_str()).unwrap();
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_find_cycles() {
+        let mut dir_graph = Graph::<&str, ()>::new();
+        let mut node_index_map: HashMap<&str, NodeIndex> = HashMap::new();
+        for key in ["a", "b", "c", "d", "e", "f"] {
+            node_index_map.insert(key, dir_graph.add_node(key));
         }
-        head.targets.push(node);
-        value.ddeps.iter().for_each(|el| fvm.add(&el, 1));
-        value
-            .outpath
-            .iter()
-            .enumerate()
-            .for_each(|el| fvm.add(&el.1, (2 + el.0).try_into().unwrap()));
+        for (key1, key2) in [
+            ("a", "b"),
+            ("b", "c"),
+            ("c", "d"),
+            ("d", "b"),
+            ("d", "e"),
+            ("d", "f"),
+            ("f", "b"),
+        ] {
+            dir_graph.update_edge(node_index_map[key1], node_index_map[key2], ());
+        }
+        let groups = group_cycles(&dir_graph);
+        assert!(groups.len() == 3);
+        assert!(groups.contains(&vec![node_index_map["a"]]));
+        assert!(groups.contains(&vec![
+            node_index_map["b"],
+            node_index_map["c"],
+            node_index_map["d"],
+            node_index_map["f"]
+        ]));
+        assert!(groups.contains(&vec![node_index_map["e"]]));
     }
-    for (key, value) in &dat {
-        deps.extend_with_edges(
-            value
-                .ddeps
-                .iter()
-                .map(|el| (node_index_map[key.as_str()], node_index_map[el.as_str()])),
+
+    #[test]
+    fn test_everything() {
+        let reader = std::io::BufReader::new(
+            r#"
+            [
+                {
+                    "provides": "foo",
+                    "ddeps": ["bar", "other"],
+                    "ideal_path": ["top", "midShared", "bottom"]
+                },
+                {
+                    "provides": "bar",
+                    "ddeps": [],
+                    "ideal_path": ["top", "midShared"]
+                },
+                {
+                    "provides": "other",
+                    "ddeps": ["bar"],
+                    "ideal_path": ["top", "midOther"]
+                }
+            ]
+        "#
+            .as_bytes(),
         );
+        let file = std::fs::File::open("../../data.json").unwrap();
+        let reader = std::io::BufReader::new(file);
+        let mut owner = Vec::new();
+        let (deps, tree) = front_end_input::parse(&mut owner, reader);
+        fixer::find_and_fix_problematic_subtrees(&deps, &tree, vec![]);
     }
-    match toposort(&deps, None) {
-        Ok(_) => {}
-        Err(_) => {
-            println!("Graph cannot be topologically sorted.");
-            std::process::exit(1);
-        }
-    }
-    //simplify(&deps, &root, vec![]);
-    //algo_test();
-    find_problematic_subtrees(&deps, &root, vec![]);
 }

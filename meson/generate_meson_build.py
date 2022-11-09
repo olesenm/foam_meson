@@ -356,7 +356,7 @@ def wmake_to_meson(PROJECT_ROOT, wmake_dir, preprocessed, parsed_options):
             provides=inter.varname,
             ddeps=order_depends,
             template=template,
-            outpath=wmake_dir.relative_to(PROJECT_ROOT).parts,
+            ideal_path=wmake_dir.relative_to(PROJECT_ROOT).parts,
             debuginfo="This recipe originated from " + str(dirpath),
         ),
         rec_dirs_srcs,
@@ -551,6 +551,20 @@ def main():
     # totdesc.elements["lib_geometricVoF"].outpath = Path("src").parts
 
     import json
+
+    ar = []
+    for key, value in totdesc.elements.items():
+        assert key == value.provides
+        ar.append(
+            {
+                "provides": value.provides,
+                "ddeps": value.ddeps,
+                "ideal_path": value.ideal_path,
+            }
+        )
+    with open("data.json", "w", encoding="utf-8") as f:
+        json.dump(ar, f, indent=4)
+    exit(1)
 
     with open("data.json", "w", encoding="utf-8") as f:
         json.dump(totdesc.elements, f, ensure_ascii=False, indent=4, cls=MyEncoder)

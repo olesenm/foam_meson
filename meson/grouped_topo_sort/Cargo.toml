@@ -13,3 +13,4 @@ itertools = "0.10.5"
 graphalgs = {git = "https://github.com/starovoid/graphalgs" }
 rand = { version = "0.8.5", features = [ "small_rng" ] }
 enum-as-inner = "0.5.1"
+permute = "0.2.1"

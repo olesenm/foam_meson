@@ -86,6 +86,7 @@ dependencies = [
  "enum-as-inner",
  "graphalgs",
  "itertools",
+ "permute",
  "petgraph",
  "rand",
  "serde",
@@ -205,6 +206,12 @@ name = "paste"
 version = "1.0.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b1de2e551fb905ac83f73f7aedf2f0cb4a0da7e35efa24a202a936269f1f18e1"
+
+[[package]]
+name = "permute"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4fddb8f2cf68c74002bde337a2472e18c870e3464b1f637cc9718f51687e88ca"
 
 [[package]]
 name = "petgraph"

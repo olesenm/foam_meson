@@ -79,9 +79,9 @@ class Node:
     template: Template
     # Direkt Dependencies of this recipe
     ddeps: list[str]
-    # Path of the meson.build file to put this recipe in. E.g.
+    # Ideal path of the meson.build file to put this recipe in. E.g.
     # ('applications', 'solvers', 'DNS', 'dnsFoam')
-    outpath: tuple[str]
+    ideal_path: tuple[str]
     # Will be printed in some warnings/error messages
     debuginfo: str
 
