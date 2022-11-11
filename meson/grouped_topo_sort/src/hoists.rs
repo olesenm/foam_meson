@@ -30,6 +30,41 @@ struct All1H(HashSet<NodeIndex>);
 #[derive(Debug, Clone, PartialEq)]
 struct Any2H(Vec<All1H>);
 
+type FastInt = usize; // todo
+
+// todo: documentation of FastHN and pretty printing
+#[derive(Debug, Clone)]
+#[allow(non_camel_case_types)]
+pub struct Fast_HN_OrderDependent(Vec<[Vec<FastInt>; 2]>);
+// pub struct Fast_HN_OrderDependent<'a>(&'a [[&'a [FastInt]; 2]]);
+
+impl Fast_HN_OrderDependent {
+    fn helper(all1: HoistsNeeded) -> Vec<FastInt> {
+        all1.into_all()
+            .unwrap()
+            .into_iter()
+            .map(|x| x.into_single().unwrap().index() as FastInt)
+            .collect::<Vec<_>>()
+    }
+
+    /// Converts a slow, flexible and simple datatype into a fast and restrictive datatype
+    pub fn from_hn(all3: HoistsNeeded) {
+        all3.into_all().unwrap().into_iter().map(|any2| {
+            let mut vec = any2.into_any().unwrap();
+            assert!(vec.len() == 2);
+            let second = vec.pop();
+            let first = vec.pop();
+            [first, second]
+        });
+    }
+}
+
+// todo would something like this be faster:
+// enum FastHN1 {
+//     Single(FastInt),
+//     Multiiple(Vec<FastInt>),
+// }
+
 fn all1_converter(input: HoistsNeeded) -> All1 {
     All1(
         input
@@ -190,7 +225,6 @@ pub fn minimum_hoists_needed_approx(node_count: usize, cost: HoistsNeeded) -> Ha
         }
         let most_common_node = NodeIndex::new(occurences.iter().position_max().unwrap());
         hoists_chosen.insert(most_common_node);
-        // The earlier we exit, the slower and more precise this function will be.
         if occurences[most_common_node.index()] < 2 {
             break;
         }

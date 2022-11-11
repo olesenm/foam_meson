@@ -25,6 +25,8 @@
 //! The directed graph has an edge from "foo" to "bar", and an edge from "foo" to "other".
 //! The tree has a leaf called "foo", whose parent is "bottomC", whose parent is "midK", whose parent is "topB".
 //! Note that "topB", "midK" and "bottomC" are neither nodes nor edges in the directed graph. If there is a "provides": "topB" somewhere, this name-clash is purely incidental, means nothing and is ignored.
+//! Note that this program is only an approximation: The output will always be correctly sorted, but there might exist another solution with fewer hoists. Everything that is an approximation instead of an exact solution is marked with #APPROX
+//! In this source, the act of hoisting nodes so that the directory can be sorted is called "fixing" this directory.
 
 #![allow(dead_code)]
 #![allow(unused_macros)]
@@ -74,6 +76,7 @@ macro_rules! cast {
 type Context = i32;
 
 pub type DepGraph<'a> = BetterGraph<&'a TargetName, Node<'a>, ()>;
+pub type DirGraph<'a> = MyGraph<&'a DirName, ()>;
 
 #[derive(Debug)]
 struct FiniteValuesMap<'a> {
@@ -117,12 +120,14 @@ pub struct Node<'a> {
     path: &'a [DirName],
 }
 
-#[derive(Debug, Clone)]
-struct EquivNode<'a> {
-    provides: &'a TargetName,
-    path: &'a [DirName],
-    orig_path: &'a [DirName],
-}
+type EquivNode<'a> = Node<'a>; // todo
+
+// #[derive(Debug, Clone)]
+// struct EquivNode<'a> {
+//     provides: &'a TargetName,
+//     path: &'a [DirName],
+//     orig_path: &'a [DirName],
+// }
 
 type NodeIndex = petgraph::stable_graph::NodeIndex<petgraph::stable_graph::DefaultIx>;
 
@@ -262,71 +267,16 @@ fn topo_sort_group_cycles<T>(dir_graph: &Graph<T, ()>) -> Vec<Vec<NodeIndex>> {
         .collect::<Vec<_>>()
 }
 
-fn direct_equivalency(part: Graph<Node, ()>) -> Graph<EquivNode, ()> {
-    part.map(
-        |ni, n| EquivNode {
-            provides: n.provides,
-            path: n.path,
-            orig_path: n.path,
-        },
-        |_ei, &_e| _e,
-    )
-}
-
-fn hoist_singles_upward(equiv: &mut Graph<EquivNode, ()>) {
-    let mut stale = false;
-    while !stale {
-        stale = true;
-        for ni in equiv.node_indices() {
-            if equiv
-                .node_indices()
-                .filter(|&x| &equiv[x].path == &equiv[ni].path)
-                .count()
-                == 1
-                && equiv[ni].path.len() != 0
-            {
-                equiv[ni].path = &equiv[ni].path[..equiv[ni].path.len() - 1];
-                stale = false;
-            }
-        }
-    }
-}
-
-fn kill_common_prefix(equiv: &mut Graph<EquivNode, ()>) {
-    loop {
-        if equiv[NodeIndex::new(0)].path.len() == 0 {
-            return;
-        }
-        let attempt = &equiv[NodeIndex::new(0)].path[0];
-        if equiv
-            .node_indices()
-            .all(|x| equiv[x].path.first() == Some(attempt))
-        {
-            for ni in equiv.node_indices() {
-                equiv[ni].path = &equiv[ni].path[1..equiv[ni].path.len()]
-            }
-        } else {
-            return;
-        }
-    }
-}
-
-fn remove_top_elements(equiv: &mut Graph<EquivNode, ()>) {
-    let mut to_be_added = Vec::new();
-    for ni in equiv.node_indices() {
-        if equiv[ni].path.len() == 0 {
-            for incoming in equiv.edges_directed(ni, Incoming) {
-                for outgoing in equiv.edges_directed(ni, Outgoing) {
-                    to_be_added.push((incoming.source(), outgoing.target(), ()))
-                }
-            }
-        }
-    }
-    for (a, b, weight) in to_be_added {
-        equiv.update_edge(a, b, weight);
-    }
-    equiv.retain_nodes(|frozen, ni| frozen[ni].path.len() != 0);
-}
+// fn direct_equivalency(part: Graph<Node, ()>) -> Graph<EquivNode, ()> {
+//     part.map(
+//         |ni, n| EquivNode {
+//             provides: n.provides,
+//             path: n.path,
+//             orig_path: n.path,
+//         },
+//         |_ei, &_e| _e,
+//     )
+// }
 
 fn shorten(dict: &Vec<&DirName>, long: &[DirName]) -> String {
     // long.iter()
@@ -355,113 +305,6 @@ fn graph_print(equiv: &Graph<EquivNode, ()>) {
             shorten(&dict, equiv[el.target()].path)
         );
     }
-}
-
-/// Removes all Nodes that can always be put in the right folder:
-/// If e.g. a node n in b only depends on nodes in a and only nodes in c depends on n and there are no nodes in b that (directly or indirectly) depend on nodes in c and there are no nodes in a that depend (directly or indirectly) on nodes in c, then we can remove n.
-/// Example of a Node that will not be removed:
-/// a/1 -> b/2
-/// b/3 -> c/4
-/// c/5 -> a/6
-/// Node 1 will not be removed
-///
-///
-/// a/1 -> b/2
-/// b/3 -> c/4
-/// c/5 -> d/6
-/// e/7 -> c/5
-fn remove_always_happy(equiv: &mut Graph<EquivNode, ()>) {
-    let mut helper_graph = equiv.clone();
-    let mut to_be_added = Vec::new();
-    for a in equiv.node_indices() {
-        for b in equiv.node_indices() {
-            if equiv[a].path[0] == equiv[b].path[0] {
-                to_be_added.push((a, b));
-            }
-        }
-    }
-    for (a, b) in to_be_added {
-        helper_graph.update_edge(a, b, ());
-        helper_graph.update_edge(b, a, ());
-    }
-    {
-        let count = equiv.node_count();
-        // equiv.retain_nodes(|frozen, ni| {
-        //     frozen
-        //         .edges(ni)
-        //         .any(|x| has_path_connecting(&helper_graph, x.target(), x.source(), None))
-        // });
-        equiv.retain_nodes(|frozen, ni| {
-            frozen
-                .edges_directed(ni, Outgoing)
-                .any(|x| has_path_connecting(&helper_graph, x.target(), x.source(), None))
-                || frozen
-                    .edges_directed(ni, Incoming)
-                    .any(|x| has_path_connecting(&helper_graph, x.target(), x.source(), None))
-        });
-        if equiv.node_count() == count {
-            return;
-        }
-    }
-}
-
-/// Returns what targets cannot build in their ideal path if we want to put subdir('a') before subdir('b')
-fn cost_of_dir_a_before_dir_b(
-    equiv: &Graph<EquivNode, ()>,
-    dir_a: &DirName,
-    dir_b: &DirName,
-) -> HoistsNeeded {
-    let exists_path = |a, b, invert| -> bool {
-        if invert {
-            has_path_connecting(equiv, b, a, None)
-        } else {
-            has_path_connecting(equiv, a, b, None)
-        }
-    };
-    HoistsNeeded::All(
-        equiv
-            .edge_references()
-            .filter_map(|e| {
-                if &equiv[e.source()].path[0] == dir_a && &equiv[e.target()].path[0] == dir_b {
-                    Some(HoistsNeeded::Any(
-                        [(e.source(), dir_b, false), (e.target(), dir_a, true)]
-                            .iter()
-                            .map(|(ni, dir, invert)| {
-                                let mut vec = equiv
-                                    .node_indices()
-                                    .filter(|&x| {
-                                        equiv[x].path[0] == **dir && exists_path(x, *ni, *invert)
-                                    })
-                                    .collect::<Vec<_>>();
-                                vec.push(*ni);
-                                HoistsNeeded::All(
-                                    vec.iter()
-                                        .map(|&x| HoistsNeeded::Single(x))
-                                        .collect::<Vec<_>>(),
-                                )
-                            })
-                            .collect::<Vec<_>>(),
-                    ))
-                } else {
-                    None
-                }
-            })
-            .collect::<Vec<_>>(),
-    )
-}
-
-fn cost_to_break_circle(equiv: &Graph<EquivNode, ()>, cycle: Vec<&DirName>) -> HoistsNeeded {
-    let mut cost = Vec::new();
-    for i in 0..cycle.len() {
-        let target_dir = cycle[i];
-        let source_dir = if i == 0 {
-            cycle.last().unwrap()
-        } else {
-            cycle[i - 1]
-        };
-        cost.push(cost_of_dir_a_before_dir_b(equiv, source_dir, target_dir));
-    }
-    HoistsNeeded::Any(cost)
 }
 
 // fn find_all_cycles<NW>(dirgraph: &Graph<NW, ()>) {
@@ -517,6 +360,10 @@ impl<NW: Eq + Hash + Copy, EW> MyGraph<NW, EW> {
         }
         this
     }
+    fn add_edge(&mut self, source: NW, target: NW, weight: EW) {
+        self.graph
+            .add_edge(self.node_map[&source], self.node_map[&target], weight);
+    }
 }
 
 pub struct BetterGraph<K: Eq + Hash, NW, EW> {
@@ -539,7 +386,6 @@ impl<K: Eq + Hash, NW, EW> BetterGraph<K, NW, EW> {
             node_map: HashMap::<K, NodeIndex>::new(),
         }
     }
-
     fn add_edge(&mut self, source: K, target: K, weight: EW) {
         self.graph
             .add_edge(self.node_map[&source], self.node_map[&target], weight);
@@ -558,113 +404,12 @@ fn print_time_complexity_note(n: usize) {
     println!(" -> {} steps.", steps);
 }
 
-fn cost_of_order(
-    node_count: usize,
-    cost_of_a_before_b: &Vec<Vec<HoistsNeeded>>,
-    order: &Vec<usize>,
-) -> usize {
-    let mut all = Vec::new();
-    for l in 0..(order.len() - 1) {
-        for r in (l + 1)..order.len() {
-            all.append(
-                &mut cost_of_a_before_b[order[l]][order[r]]
-                    .as_all()
-                    .unwrap()
-                    .clone(),
-            );
-        }
-    }
-    let all = HoistsNeeded::All(all);
-    minimum_hoists_needed_approx(node_count, all).len()
-}
-
-fn convert_to_equivalent_problem(part: Graph<Node, ()>) {
-    let mut equiv = direct_equivalency(part);
-    hoist_singles_upward(&mut equiv);
-    kill_common_prefix(&mut equiv);
-    remove_top_elements(&mut equiv);
-    remove_always_happy(&mut equiv);
-
-    let dirs = equiv
-        .node_indices()
-        .map(|ni| &equiv[ni].path[0])
-        .unique()
-        .collect::<Vec<_>>();
-    let node_to_group = |ni: NodeIndex| dirs.iter().position(|x| x == &&equiv[ni].path[0]).unwrap();
-    //let edge_count_matrix = Vec::<Vec<i32>>::new();
-    let mut edge_count_matrix = vec![vec![0; dirs.len()]; dirs.len()];
-    for e in equiv.edge_references() {
-        edge_count_matrix[node_to_group(e.source())][node_to_group(e.target())] += 1;
-    }
-    // for x in 0..dirs.len() {
-    //     for y in 0..dirs.len() {
-    //         print!("{: >3}", edge_count_matrix[x][y]);
-    //     }
-    //     println!("");
-    // }
-    // let mut dirgraph = Graph::<&str, ()>::new();
-    // for dir in dirs {
-    //     digraph.add_node();
-    // }
-    let mut dirgraph = MyGraph::<&DirName, ()>::from_nodes(&dirs);
-
-    for x in 0..dirs.len() {
-        for y in 0..dirs.len() {
-            if x != y && edge_count_matrix[x][y] > 0 {
-                dirgraph
-                    .graph
-                    .add_edge(dirgraph.node_map[dirs[x]], dirgraph.node_map[dirs[y]], ());
-            }
-            if x != y {
-                println!(
-                    "{: <20} {: >2} {} ",
-                    dirs[x], edge_count_matrix[x][y], dirs[y]
-                );
-                //dbg!(cost_of_dir_a_before_dir_b(&equiv, dirs[x], dirs[y]));
-            }
-        }
-    }
-    dbg!(&dirgraph.graph);
-    let cycles = graphalgs::elementary_circuits::elementary_circuits(&dirgraph.graph);
-    let mut cost = Vec::new();
-    for cycle in cycles {
-        let cycle = cycle.iter().map(|x| dirs[x.index()]).collect::<Vec<_>>();
-        cost.push(cost_to_break_circle(&equiv, cycle));
-    }
-    let cost = HoistsNeeded::All(cost);
-    //minimum_hoists_needed(cost);
-
-    print_time_complexity_note(dirs.len());
-
-    let cost_of_a_before_b = (0..dirs.len())
-        .map(|x| {
-            (0..dirs.len())
-                .map(|y| cost_of_dir_a_before_dir_b(&equiv, dirs[x], dirs[y]))
-                .collect::<Vec<_>>()
-        })
-        .collect::<Vec<_>>();
-
-    let mut costs = Vec::new();
-    for order in permutations_of(&(0..dirs.len()).collect::<Vec<_>>()) {
-        let order = order.map(|x| *x).collect::<Vec<_>>();
-        costs.push((
-            order.clone(),
-            cost_of_order(equiv.node_count(), &cost_of_a_before_b, &order),
-        ));
-    }
-    for el in costs.iter() {
-        if el.1 <= 3 {
-            dbg!(&el.0.iter().map(|&i| dirs[i]).collect::<Vec<_>>());
-        }
-    }
-
-    dbg!(costs.iter().min_by_key(|el| el.1));
-}
-
 fn main() {
     let mut owner = Vec::new();
-    let (deps, tree) = front_end_input::parse(&mut owner, std::io::stdin());
-    fixer::find_and_fix_problematic_subtrees(&deps, &tree, vec![]);
+    let file = std::fs::File::open("../../data.json").unwrap();
+    let reader = std::io::BufReader::new(file);
+    let (deps, tree) = front_end_input::parse(&mut owner, reader); // std::io::stdin()
+    fixer::find_and_fix_problematic_subgraph(&deps, &tree, vec![]);
 }
 
 #[cfg(test)]
@@ -729,6 +474,6 @@ mod tests {
         let reader = std::io::BufReader::new(file);
         let mut owner = Vec::new();
         let (deps, tree) = front_end_input::parse(&mut owner, reader);
-        fixer::find_and_fix_problematic_subtrees(&deps, &tree, vec![]);
+        fixer::find_and_fix_problematic_subgraph(&deps, &tree, vec![]);
     }
 }
