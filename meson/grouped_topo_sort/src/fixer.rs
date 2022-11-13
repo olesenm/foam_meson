@@ -183,21 +183,23 @@ fn simple_simplifications(part: &mut Graph<Node, ()>) {
 /// Number of hoists that are needed if we want the dirs to be in the `order` order.
 fn cost_of_order(
     node_count: usize,
-    cost_of_a_before_b: &Vec<Vec<HoistsNeeded>>,
+    cost_of_a_before_b: &mut Vec<Vec<Fast_HN_OrderDependent>>,
     order: &Vec<usize>,
 ) -> usize {
-    let mut all = Vec::new();
-    for l in 0..(order.len() - 1) {
-        for r in (l + 1)..order.len() {
-            all.append(
-                &mut cost_of_a_before_b[order[l]][order[r]]
-                    .as_all()
-                    .unwrap()
-                    .clone(),
-            );
-        }
-    }
-    let all = HoistsNeeded::All(all);
+    let all = cost_of_a_before_b
+        .iter_mut()
+        .enumerate()
+        .map(|(l, x)| {
+            x.iter_mut()
+                .enumerate()
+                .filter(move |(r, y)| {
+                    order.iter().position(|&i| i == l) < order.iter().position(|i| i == r)
+                })
+                .map(|(r, y)| y)
+        })
+        .flatten()
+        .filter(|el| el.0.len() != 0)
+        .collect::<Vec<_>>();
     minimum_hoists_needed_approx(node_count, all).len()
 }
 
@@ -219,15 +221,14 @@ fn fix_problematic_subgraph(mut part: Graph<Node, ()>) {
         })
         .collect::<Vec<_>>();
 
-    // let temp = cost_of_a_before_b
-    //     .clone()
-    //     .into_iter()
-    //     .map(|x| {
-    //         x.into_iter()
-    //             .map(|y| Fast_HN_OrderDependent::from_hn(y))
-    //             .collect::<Vec<_>>()
-    //     })
-    //     .collect::<Vec<_>>();
+    let mut cost_of_a_before_b = cost_of_a_before_b
+        .into_iter()
+        .map(|x| {
+            x.into_iter()
+                .map(|y| Fast_HN_OrderDependent::from_hn(y))
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
 
     // let estimate_memory_needed = (0..cost_of_a_before_b.len())
     //     .map(|x| {
@@ -237,12 +238,16 @@ fn fix_problematic_subgraph(mut part: Graph<Node, ()>) {
     //     })
     //     .sum::<usize>();
 
+    // let order = vec![7, 0, 4, 3, 2, 5, 1, 6];
+    // cost_of_order(part.node_count(), &mut cost_of_a_before_b, &order);
+    // todo!();
+
     dbg!(permutations_of(&(0..dirs.len()).collect::<Vec<_>>())
         .map(|order| {
             let order = order.map(|x| *x).collect::<Vec<_>>();
             (
                 order.clone(),
-                cost_of_order(part.node_count(), &cost_of_a_before_b, &order),
+                cost_of_order(part.node_count(), &mut cost_of_a_before_b, &order),
             )
         })
         .min_by_key(|el| el.1));

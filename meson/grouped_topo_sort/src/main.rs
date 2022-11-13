@@ -32,6 +32,7 @@
 #![allow(unused_macros)]
 #![allow(unused_variables)]
 #![allow(unused_imports)]
+#![feature(slice_as_chunks)]
 use petgraph::algo::dijkstra;
 use petgraph::algo::has_path_connecting;
 use petgraph::algo::is_cyclic_directed;
