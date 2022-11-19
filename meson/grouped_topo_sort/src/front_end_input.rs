@@ -1,13 +1,9 @@
 use petgraph::algo::toposort;
-use petgraph::Graph;
 use serde::Deserialize;
-use std::collections::HashMap;
 
-use crate::BetterGraph;
 use crate::DepGraph;
 use crate::DirName;
 use crate::Node;
-use crate::NodeIndex;
 use crate::TargetName;
 use crate::Tree;
 
@@ -31,14 +27,8 @@ pub fn parse<R: std::io::Read>(
     owner.extend(dat.into_iter().map(|x| {
         (
             TargetName(x.provides),
-            x.ddeps
-                .into_iter()
-                .map(|y| TargetName(y))
-                .collect::<Vec<_>>(),
-            x.ideal_path
-                .into_iter()
-                .map(|y| DirName(y))
-                .collect::<Vec<_>>(),
+            x.ddeps.into_iter().map(TargetName).collect::<Vec<_>>(),
+            x.ideal_path.into_iter().map(DirName).collect::<Vec<_>>(),
         )
     }));
     //.collect::<Vec<_>>();
@@ -46,20 +36,20 @@ pub fn parse<R: std::io::Read>(
     let mut deps = DepGraph::new();
     let mut tree = Tree::new();
 
-    for (provides, ddeps, ideal_path) in owner.iter() {
+    for (provides, _ddeps, ideal_path) in owner.iter() {
         let node = Node {
             provides: provides,
-            path: ideal_path,
+            ideal_path,
         };
-        deps.add_node(node, &provides);
+        deps.add_node(node, provides);
 
         let mut head = &mut tree;
         for dirname in ideal_path {
-            head = head.subdirs.entry(dirname).or_insert(Tree::new());
+            head = head.subdirs.entry(dirname).or_insert_with(Tree::new);
         }
         head.targets.push(provides);
     }
-    for (provides, ddeps, ideal_path) in owner.iter() {
+    for (provides, ddeps, _ideal_path) in owner.iter() {
         for x in ddeps.iter() {
             deps.add_edge(provides, x, ());
         }
