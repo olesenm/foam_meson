@@ -34,11 +34,9 @@ fuzz_target!(|input: Vec<fuzz_input::FuzzInput>| {
 
     let mut owner = Vec::new();
     if let Ok((mut deps, mut tree)) = inner_parse(&mut owner, data) {
-        dbg!(&deps.graph, &tree);
         let mut hoists = Vec::new();
         find_all_hoists_needed(&mut hoists, &deps, &tree, vec![]);
         execute_hoists(&mut deps, &mut tree, &hoists);
-        dbg!(&hoists, &deps.graph, &tree);
         assert_toposort_possible(&deps, &tree);
     }
 });

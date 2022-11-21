@@ -232,7 +232,6 @@ fn gen_dir_graph<'a, 'o: 'a>(
         if let Some(source) = &points[0] {
             if let Some(target) = &points[1] {
                 if source != target {
-                    dbg!(&source, &target, edge.source(), edge.target());
                     local.add_edge(&source, &target, ());
                 }
             }
@@ -384,10 +383,6 @@ pub fn assert_toposort_possible(deps: &DepGraph, tree: &Tree) {
     tree.walk_subtrees_recursively(|prefix, _subtree| {
         let mut owner = Vec::new();
         let local = gen_dir_graph(&mut owner, deps, tree, prefix);
-
-        dbg!(prefix);
-        dbg!(&local.graph);
-        dbg!(toposort(&local.graph, None));
         assert!(toposort(&local.graph, None).is_ok());
     });
 }

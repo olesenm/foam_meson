@@ -1,4 +1,6 @@
 use permute::permutations_of;
+use petgraph::visit::depth_first_search;
+use petgraph::visit::{Control, DfsEvent};
 use petgraph::Graph;
 use std::collections::HashSet;
 
@@ -102,7 +104,7 @@ fn kill_common_prefix(part: &mut Graph<EquivNode, ()>) {
     }
 }
 
-fn remove_top_elements(part: &mut Graph<EquivNode, ()>) -> HoistsNeeded {
+fn remove_top_elements<'o>(part: &mut Graph<EquivNode<'o>, ()>) -> HoistsNeededNamed<'o> {
     let mut hoists_always_needed = Vec::new();
     let mut edges = Vec::new();
     for ni in part.node_indices() {
@@ -124,9 +126,9 @@ fn remove_top_elements(part: &mut Graph<EquivNode, ()>) -> HoistsNeeded {
                         // 3   -> 4
                         // 4   -> a/5
                         // Removing node 2,3,4 and adding the edge a/1 -> a/5 is not enough, we need to note that we have to hoist either Node 1 or Node 5
-                        hoists_always_needed.push(HoistsNeeded::Any(vec![
-                            HoistsNeeded::Single(source),
-                            HoistsNeeded::Single(target),
+                        hoists_always_needed.push(HoistsNeededNamed::Any(vec![
+                            HoistsNeededNamed::Single(part[source].provides),
+                            HoistsNeededNamed::Single(part[target].provides),
                         ]));
                         // #PERFORMANCE: Here, we create two vectors that always
                         // have a length of 1. This is inefficient, the type
@@ -141,7 +143,7 @@ fn remove_top_elements(part: &mut Graph<EquivNode, ()>) -> HoistsNeeded {
         part.update_edge(a, b, weight);
     }
     part.retain_nodes(|frozen, ni| !frozen[ni].path.is_empty());
-    HoistsNeeded::All(hoists_always_needed)
+    HoistsNeededNamed::All(hoists_always_needed)
 }
 
 /// Removes all Nodes that can always be put in the right folder:
@@ -179,7 +181,7 @@ fn remove_always_happy(part: &mut Graph<EquivNode, ()>) {
 }
 
 /// Some more or less trivial simplifications to the tree. These are (afaik) not necessary for correctness, but boost the performance by removing some elements.
-fn simple_simplifications(part: &mut Graph<Node, ()>) -> HoistsNeeded {
+fn simple_simplifications<'o>(part: &mut Graph<Node<'o>, ()>) -> HoistsNeededNamed<'o> {
     hoist_singles_upward(part);
     kill_common_prefix(part);
     let hoists_always_needed = remove_top_elements(part);
@@ -218,6 +220,7 @@ fn find_hoists_needed_for_subgraph<'a, 'o: 'a>(
     mut part: Graph<Node<'o>, ()>,
 ) {
     let hoists_always_needed = simple_simplifications(&mut part);
+    let hoists_always_needed = hoists_always_needed.names_to_indices(&part);
     let mut hoists_always_needed = FastHN::from_hn(hoists_always_needed);
     // #Performance: Maybe we could do some pre-computation on hoists_always_needed here
     let dirs = part

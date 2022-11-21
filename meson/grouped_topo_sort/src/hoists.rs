@@ -1,7 +1,12 @@
-use std::collections::HashSet;
-
 use enum_as_inner::EnumAsInner;
 use itertools::Itertools;
+use petgraph::Graph;
+use std::collections::HashMap;
+use std::collections::HashSet;
+
+use crate::Node;
+use crate::TargetName;
+
 type NodeIndex = petgraph::stable_graph::NodeIndex<petgraph::stable_graph::DefaultIx>;
 
 /// HoistsNeeded indicates which nodes need to be hoisted.
@@ -13,6 +18,44 @@ pub enum HoistsNeeded {
     Any(Vec<HoistsNeeded>),
     /// All elements of the vector need to be hoisted.
     All(Vec<HoistsNeeded>),
+}
+
+// todo: the fact that `HoistsNeededNamed` exists is a code smell
+/// Same as HoistsNeeded, but uses TargetName's instead of node indices
+#[derive(Debug, Clone, EnumAsInner)]
+pub enum HoistsNeededNamed<'o> {
+    Single(&'o TargetName),
+    Any(Vec<HoistsNeededNamed<'o>>),
+    All(Vec<HoistsNeededNamed<'o>>),
+}
+
+impl<'o> HoistsNeededNamed<'o> {
+    fn names_to_indices_helper(
+        &self,
+        graph: &Graph<Node, ()>,
+        map: &HashMap<&'o TargetName, NodeIndex>,
+    ) -> HoistsNeeded {
+        match self {
+            HoistsNeededNamed::Single(x) => HoistsNeeded::Single(map[x]),
+            HoistsNeededNamed::Any(x) => HoistsNeeded::Any(
+                x.iter()
+                    .map(|y| y.names_to_indices_helper(graph, map))
+                    .collect::<Vec<_>>(),
+            ),
+            HoistsNeededNamed::All(x) => HoistsNeeded::All(
+                x.iter()
+                    .map(|y| y.names_to_indices_helper(graph, map))
+                    .collect::<Vec<_>>(),
+            ),
+        }
+    }
+    pub fn names_to_indices(&self, graph: &Graph<Node, ()>) -> HoistsNeeded {
+        let map = graph
+            .node_indices()
+            .map(|x| (graph[x].provides, x))
+            .collect::<HashMap<_, _>>();
+        self.names_to_indices_helper(graph, &map)
+    }
 }
 
 /// I experimented with different integer lengths, but it made no real impact, so I just set it to usize.
