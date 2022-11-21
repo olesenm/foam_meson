@@ -14,6 +14,16 @@ graphalgs = {git = "https://github.com/starovoid/graphalgs" }
 rand = { version = "0.8.5", features = [ "small_rng" ] }
 enum-as-inner = "0.5.1"
 permute = "0.2.1"
+arbitrary = { version = "1", optional = true, features = ["derive"] } # todo: arbitrary could be a dev-dependency
 
 [profile.release]
 debug = true
+
+
+[lib]
+name = "mylib"
+path = "src/lib.rs"
+
+[[bin]]
+name = "mybin"
+path = "src/bin.rs"

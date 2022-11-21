@@ -19,17 +19,25 @@ pub enum HoistsNeeded {
 pub type FastInt = usize;
 
 /// A more complex, uglier and more restrictive, but faster data-format of `HoistsNeeded`.
+/// Take a look at FastHN::from_hn to understand this datatype,
 /// The boolean indicates if the `[Vec<FastInt>; 2]` is "disabled", i.e. it should be ignored. Afaik, this "disabling" is faster than removing elements from the vec.
+///
+/// # Performance
+/// The Vec<FastInt> has usually exactly one element. I think we leave some performance on the table by using `Vec<FastInt>`, when `FastInt` would usually be sufficient.
+/// The `Vec<FastInt>` coming from `simple_simplifications` *always* has exactly one element, the `Vec<FastInt>` coming from `cost_of_dir_a_before_dir_b` *usually* has exactly one element.
 #[derive(Debug, Clone)]
 pub struct FastHN(pub Vec<(bool, [Vec<FastInt>; 2])>);
 
 impl FastHN {
-    fn helper(all1: HoistsNeeded) -> Vec<FastInt> {
-        all1.into_all()
-            .unwrap()
-            .into_iter()
-            .map(|x| x.into_single().unwrap().index() as FastInt)
-            .collect::<Vec<_>>()
+    fn helper(input: HoistsNeeded) -> Vec<FastInt> {
+        match input {
+            HoistsNeeded::Single(x) => vec![x.index() as FastInt],
+            HoistsNeeded::All(v) => v
+                .into_iter()
+                .map(|x| x.into_single().unwrap().index() as FastInt)
+                .collect::<Vec<_>>(),
+            HoistsNeeded::Any(_) => unreachable!(),
+        }
     }
 
     /// Converts a slow, flexible and simple datatype into a fast and restrictive datatype
