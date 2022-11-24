@@ -30,11 +30,10 @@
 //!
 //! Todo: we only move nodes upwards, never sideways. Why? Probably because its to complicated
 
-// #![allow(dead_code)]
-// #![allow(unused_macros)]
-// #![allow(unused_variables)]
-// #![allow(unused_imports)]
-
+#![allow(dead_code)]
+#![allow(unused_macros)]
+#![allow(unused_variables)]
+#![allow(unused_imports)]
 #![allow(clippy::ptr_arg)]
 
 use petgraph::algo::has_path_connecting;
@@ -206,19 +205,25 @@ fn gen_dir_graph<'a, 'o: 'a>(
 
     let dirs = subtree.subdirs.keys().map(|x| DirOrSingle::Dir(x));
     let singles = subtree.targets.iter().map(|x| DirOrSingle::Single(x));
-
     owner.extend(dirs.chain(singles));
+    gen_dir_graph_helper(owner, &deps.graph, prefix)
+}
 
+fn gen_dir_graph_helper<'a, 'o: 'a>(
+    owner: &'a Vec<DirOrSingle<'o>>,
+    graph: &'a Graph<Node<'o>, ()>,
+    prefix: &'a Vec<&'o DirName>,
+) -> DirGraph<'o, 'a> {
     let mut local = DirGraph::new();
     for node in owner.iter() {
         local.add_node(node);
     }
 
-    for edge in deps.graph.edge_references() {
+    for edge in graph.edge_references() {
         let points = [edge.source(), edge.target()]
             .iter()
             .map(|&ni| {
-                let node = &deps.graph[ni];
+                let node = &graph[ni];
                 let path = node.path;
                 if !path_begins_with_2(path, prefix) {
                     None
@@ -373,7 +378,7 @@ pub fn execute_hoists<'o>(deps: &mut DepGraph<'o>, tree: &mut Tree<'o>, hoists: 
     verify_tree_graph(&deps, &tree);
 }
 
-#[derive(Debug, Hash, PartialEq, Eq)]
+#[derive(Debug, Hash, PartialEq, Eq, Clone)]
 enum DirOrSingle<'a> {
     Dir(&'a DirName),
     Single(&'a TargetName),
@@ -391,11 +396,13 @@ pub fn my_main() {
     let mut owner = Vec::new();
     let file = std::fs::File::open("../../data.json").unwrap();
     let reader = std::io::BufReader::new(file);
-    let (deps, tree) = front_end_input::parse(&mut owner, reader); // std::io::stdin()
+    let (mut deps, mut tree) = front_end_input::parse(&mut owner, reader); // std::io::stdin()
     verify_tree_graph(&deps, &tree);
-    let mut hoists_needed = Vec::new();
-    fixer::find_all_hoists_needed(&mut hoists_needed, &deps, &tree, vec![]);
-    println!("{}", serde_json::to_string_pretty(&hoists_needed).unwrap());
+    let mut hoists = Vec::new();
+    fixer::find_all_hoists_needed(&mut hoists, &deps, &tree, vec![]);
+    println!("{}", serde_json::to_string_pretty(&hoists).unwrap());
+    execute_hoists(&mut deps, &mut tree, &hoists);
+    assert_toposort_possible(&deps, &tree);
 }
 
 #[cfg(test)]

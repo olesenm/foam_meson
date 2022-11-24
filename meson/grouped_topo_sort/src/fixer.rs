@@ -1,5 +1,5 @@
 use permute::permutations_of;
-use petgraph::visit::depth_first_search;
+use petgraph::visit::{depth_first_search, IntoNodeReferences};
 use petgraph::visit::{Control, DfsEvent};
 use petgraph::Graph;
 use std::collections::HashSet;
@@ -33,32 +33,26 @@ fn cost_of_dir_a_before_dir_b(
             has_path_connecting(part, a, b, None)
         }
     };
+
+    let nodes_in_a = part
+        .node_references()
+        .filter(|(ni, nw)| nw.path.get(0) == Some(dir_a));
+    let nodes_in_b = part
+        .node_references()
+        .filter(|(ni, nw)| nw.path.get(0) == Some(dir_b));
+
+    // If the node k is in dir_a and the q is in dir_b, and k has a (direct or indirect) dependency on q, then either k or q needs to be hoisted.
     HoistsNeeded::All(
-        part.edge_references()
-            .filter_map(|e| {
-                if &part[e.source()].path[0] == dir_a && &part[e.target()].path[0] == dir_b {
-                    Some(HoistsNeeded::Any(
-                        [(e.source(), dir_b, false), (e.target(), dir_a, true)]
-                            .iter()
-                            .map(|(ni, dir, invert)| {
-                                let mut vec = part
-                                    .node_indices()
-                                    .filter(|&x| {
-                                        part[x].path[0] == **dir && exists_path(x, *ni, *invert)
-                                    })
-                                    .collect::<Vec<_>>();
-                                vec.push(*ni);
-                                HoistsNeeded::All(
-                                    vec.iter()
-                                        .map(|&x| HoistsNeeded::Single(x))
-                                        .collect::<Vec<_>>(),
-                                )
-                            })
-                            .collect::<Vec<_>>(),
-                    ))
-                } else {
-                    None
-                }
+        nodes_in_a
+            .cartesian_product(nodes_in_b)
+            .filter(|((src_i, src_w), (tar_i, tar_w))| {
+                has_path_connecting(part, *src_i, *tar_i, None)
+            })
+            .map(|((src_i, src_w), (tar_i, tar_w))| {
+                HoistsNeeded::Any(vec![
+                    HoistsNeeded::Single(src_i),
+                    HoistsNeeded::Single(tar_i),
+                ])
             })
             .collect::<Vec<_>>(),
     )
@@ -104,48 +98,6 @@ fn kill_common_prefix(part: &mut Graph<EquivNode, ()>) {
     }
 }
 
-fn remove_top_elements<'o>(part: &mut Graph<EquivNode<'o>, ()>) -> HoistsNeededNamed<'o> {
-    let mut hoists_always_needed = Vec::new();
-    let mut edges = Vec::new();
-    for ni in part.node_indices() {
-        if part[ni].path.is_empty() {
-            for incoming in part.edges_directed(ni, Incoming) {
-                for outgoing in part.edges_directed(ni, Outgoing) {
-                    let source = incoming.source();
-                    let target = outgoing.target();
-                    // If we have this configuration:
-                    // a/1 -> 2
-                    // 2   -> b/3
-                    // We remove node 2 (later in this function) and add an edge:
-                    // a/2 -> b/3
-                    edges.push((source, target, ()));
-                    if part[source].path[0] == part[target].path[0] {
-                        // If we have this configuration:
-                        // a/1 -> 2
-                        // 2   -> 3
-                        // 3   -> 4
-                        // 4   -> a/5
-                        // Removing node 2,3,4 and adding the edge a/1 -> a/5 is not enough, we need to note that we have to hoist either Node 1 or Node 5
-                        hoists_always_needed.push(HoistsNeededNamed::Any(vec![
-                            HoistsNeededNamed::Single(part[source].provides),
-                            HoistsNeededNamed::Single(part[target].provides),
-                        ]));
-                        // #PERFORMANCE: Here, we create two vectors that always
-                        // have a length of 1. This is inefficient, the type
-                        // `Vec<FastInt>` could be replaced by the type
-                        // `FastInt`.
-                    }
-                }
-            }
-        }
-    }
-    for (a, b, weight) in edges {
-        part.update_edge(a, b, weight);
-    }
-    part.retain_nodes(|frozen, ni| !frozen[ni].path.is_empty());
-    HoistsNeededNamed::All(hoists_always_needed)
-}
-
 /// Removes all Nodes that can always be put in the right folder:
 /// If e.g. a node n in b only depends on nodes in a and only nodes in c depends on n and there are no nodes in b that (directly or indirectly) depend on nodes in c and there are no nodes in a that depend (directly or indirectly) on nodes in c, then we can remove n.
 /// # Example
@@ -161,7 +113,10 @@ fn remove_always_happy(part: &mut Graph<EquivNode, ()>) {
     let mut edges = Vec::new();
     for a in part.node_indices() {
         for b in part.node_indices() {
-            if part[a].path[0] == part[b].path[0] {
+            if !part[a].path.is_empty()
+                && !part[b].path.is_empty()
+                && part[a].path[0] == part[b].path[0]
+            {
                 edges.push((a, b));
             }
         }
@@ -170,23 +125,27 @@ fn remove_always_happy(part: &mut Graph<EquivNode, ()>) {
         helper_graph.update_edge(a, b, ());
         helper_graph.update_edge(b, a, ());
     }
+    dbg!(part.node_count());
     part.retain_nodes(|frozen, ni| {
-        frozen
+        let ret = frozen
             .edges_directed(ni, Outgoing)
             .any(|x| has_path_connecting(&helper_graph, x.target(), x.source(), None))
             || frozen
                 .edges_directed(ni, Incoming)
-                .any(|x| has_path_connecting(&helper_graph, x.target(), x.source(), None))
+                .any(|x| has_path_connecting(&helper_graph, x.target(), x.source(), None));
+        if !ret {
+            dbg!(&frozen[ni]);
+        }
+        ret
     });
+    dbg!(part.node_count());
 }
 
 /// Some more or less trivial simplifications to the tree. These are (afaik) not necessary for correctness, but boost the performance by removing some elements.
-fn simple_simplifications<'o>(part: &mut Graph<Node<'o>, ()>) -> HoistsNeededNamed<'o> {
+fn simple_simplifications<'o>(part: &mut Graph<Node<'o>, ()>) {
     hoist_singles_upward(part);
-    kill_common_prefix(part);
-    let hoists_always_needed = remove_top_elements(part);
-    remove_always_happy(part);
-    hoists_always_needed
+    kill_common_prefix(part); // todo: is this needed for correctness, or just for performance
+                              //remove_always_happy(part);
 }
 
 /// Number of hoists that are needed if we want the dirs to be in the `order` order.
@@ -194,7 +153,6 @@ fn cost_of_order(
     node_count: usize,
     cost_of_a_before_b: &mut Vec<Vec<FastHN>>,
     order: &Vec<usize>,
-    hoists_always_needed: &mut FastHN,
 ) -> HashSet<FastInt> {
     // If e.g. `7` comes before `5` in `order`, then `cost_of_a_before_b[7][5]` will be added to `all`, but `cost_of_a_before_b[5][7]` won't.
     let all = cost_of_a_before_b
@@ -208,7 +166,6 @@ fn cost_of_order(
                 })
                 .map(|(_r, y)| y)
         })
-        .chain(std::iter::once(hoists_always_needed))
         .filter(|el| !el.0.is_empty())
         .collect::<Vec<_>>();
     minimum_hoists_needed_approx(node_count, all)
@@ -219,13 +176,23 @@ fn find_hoists_needed_for_subgraph<'a, 'o: 'a>(
     prefix: &'a Vec<&'o DirName>,
     mut part: Graph<Node<'o>, ()>,
 ) {
-    let hoists_always_needed = simple_simplifications(&mut part);
-    let hoists_always_needed = hoists_always_needed.names_to_indices(&part);
-    let mut hoists_always_needed = FastHN::from_hn(hoists_always_needed);
-    // #Performance: Maybe we could do some pre-computation on hoists_always_needed here
+    simple_simplifications(&mut part);
+
     let dirs = part
-        .node_indices()
-        .map(|ni| &part[ni].path[0])
+        .node_weights()
+        .filter(|x| !x.path.is_empty())
+        .map(|x| DirOrSingle::Dir(&x.path[0]))
+        .unique();
+    let singles = part
+        .node_weights()
+        .filter(|x| x.path.is_empty())
+        .map(|x| DirOrSingle::Single(x.provides));
+    let owner = dirs.chain(singles).collect::<Vec<_>>();
+    let dir_graph = gen_dir_graph_helper(&owner, &part, &prefix);
+    let dirs = part
+        .node_weights()
+        .filter(|x| !x.path.is_empty())
+        .map(|x| &x.path[0])
         .unique()
         .collect::<Vec<_>>();
 
@@ -237,19 +204,16 @@ fn find_hoists_needed_for_subgraph<'a, 'o: 'a>(
                 .collect::<Vec<_>>()
         })
         .collect::<Vec<_>>();
+    // performance: cost_of_a_before_b[x][y].0.len() == 0 for some x and y. Maybe we can use this to improve performance, because it implies that cost_of_order(..., ..., vec![a,b,x,y,c,d]) == cost_of_order(..., ..., vec![a,b,y,x,c,d]), so we don't need to try both permuations.
 
     print_time_complexity_note(dirs.len());
+
     let (_optimal_order, hoists_needed) = permutations_of(&(0..dirs.len()).collect::<Vec<_>>())
         .map(|order| {
             let order = order.copied().collect::<Vec<_>>();
             (
                 order.clone(),
-                cost_of_order(
-                    part.node_count(),
-                    &mut cost_of_a_before_b,
-                    &order,
-                    &mut hoists_always_needed,
-                ),
+                cost_of_order(part.node_count(), &mut cost_of_a_before_b, &order),
             )
         })
         .min_by_key(|el| el.1.len())
