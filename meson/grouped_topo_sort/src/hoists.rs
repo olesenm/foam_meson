@@ -66,19 +66,20 @@ pub type FastInt = usize;
 /// The boolean indicates if the `[Vec<FastInt>; 2]` is "disabled", i.e. it should be ignored. Afaik, this "disabling" is faster than removing elements from the vec.
 ///
 /// # Performance
+/// todo: fix docs
 /// The Vec<FastInt> has usually exactly one element. I think we leave some performance on the table by using `Vec<FastInt>`, when `FastInt` would usually be sufficient.
 /// The `Vec<FastInt>` coming from `simple_simplifications` *always* has exactly one element, the `Vec<FastInt>` coming from `cost_of_dir_a_before_dir_b` *usually* has exactly one element.
 #[derive(Debug, Clone)]
-pub struct FastHN(pub Vec<(bool, [Vec<FastInt>; 2])>);
+pub struct FastHN(pub Vec<(bool, [FastInt; 2])>);
 
 impl FastHN {
-    fn helper(input: HoistsNeeded) -> Vec<FastInt> {
+    fn helper(input: HoistsNeeded) -> FastInt {
         match input {
-            HoistsNeeded::Single(x) => vec![x.index() as FastInt],
-            HoistsNeeded::All(v) => v
-                .into_iter()
-                .map(|x| x.into_single().unwrap().index() as FastInt)
-                .collect::<Vec<_>>(),
+            HoistsNeeded::Single(x) => x.index() as FastInt,
+            HoistsNeeded::All(mut v) => {
+                assert!(v.len() == 1);
+                v.pop().unwrap().into_single().unwrap().index() as FastInt
+            }
             HoistsNeeded::Any(_) => unreachable!(),
         }
     }
@@ -107,9 +108,7 @@ fn count_occurences(node_count: usize, cost: &Vec<&mut FastHN>) -> Vec<usize> {
         for b in a.0.iter() {
             if b.0 {
                 for c in b.1.iter() {
-                    if c.len() == 1 {
-                        occurences[c[0] as usize] += 1;
-                    }
+                    occurences[*c as usize] += 1;
                 }
             }
         }
@@ -121,7 +120,7 @@ fn disable_solved_problems(cost: &mut Vec<&mut FastHN>, node: FastInt) {
     for all3 in cost.iter_mut() {
         for any2 in all3.0.iter_mut() {
             for all1 in any2.1.iter() {
-                if all1.len() == 1 && all1[0] == node {
+                if *all1 == node {
                     any2.0 = false;
                     break;
                 }
@@ -155,12 +154,14 @@ pub fn minimum_hoists_needed_approx(
         for any2 in all3.0.iter() {
             if any2.0 {
                 let minpos = any2.1.iter().position_min_by_key(|all1| {
-                    all1.iter().filter(|&x| !hoists_chosen.contains(x)).count()
+                    if !hoists_chosen.contains(all1) {
+                        1
+                    } else {
+                        0
+                    }
                 });
                 if let Some(minpos) = minpos {
-                    for &ni in &any2.1[minpos] {
-                        hoists_chosen.insert(ni);
-                    }
+                    hoists_chosen.insert(any2.1[minpos]);
                 }
             }
         }

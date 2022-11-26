@@ -67,10 +67,10 @@ type EquivNode<'a> = Node<'a>; // todo
 type NodeIndex = petgraph::stable_graph::NodeIndex<petgraph::stable_graph::DefaultIx>;
 
 #[derive(Debug, Serialize, PartialEq, Eq)]
-/// Indicates that `target` will not be build in its ideal path, but in `actual_path`.
+/// Indicates that `target` will not be build in its ideal path, but in `chosen_path`.
 pub struct Hoist<'a> {
     target: &'a TargetName,
-    actual_path: Vec<DirName>,
+    chosen_path: Vec<DirName>,
 }
 
 #[derive(Debug)]
@@ -371,10 +371,10 @@ pub fn execute_hoists<'o>(deps: &mut DepGraph<'o>, tree: &mut Tree<'o>, hoists: 
         assert!(subtree.targets.contains(&hoist.target));
         subtree.targets.retain(|&x| x != hoist.target);
 
-        let subtree = tree.get_mut_subtree_from_prefix(&hoist.actual_path);
+        let subtree = tree.get_mut_subtree_from_prefix(&hoist.chosen_path);
         subtree.targets.push(hoist.target);
 
-        deps.graph[ni].path = hoist.actual_path.as_slice();
+        deps.graph[ni].path = hoist.chosen_path.as_slice();
     }
     verify_tree_graph(&deps, &tree);
 }
@@ -395,8 +395,9 @@ pub fn assert_toposort_possible(deps: &DepGraph, tree: &Tree) {
 
 pub fn my_main() {
     let mut owner = Vec::new();
-    let file = std::fs::File::open("../../data.json").unwrap();
-    let reader = std::io::BufReader::new(file);
+    // let file = std::fs::File::open("../../data.json").unwrap();
+    // let reader = std::io::BufReader::new(file);
+    let reader = std::io::stdin();
     let (mut deps, mut tree) = front_end_input::parse(&mut owner, reader); // std::io::stdin()
     verify_tree_graph(&deps, &tree);
     let mut hoists = Vec::new();
@@ -441,7 +442,7 @@ mod tests {
         let expected_result = r#"[
   {
     "target": "foo",
-    "actual_path": [
+    "chosen_path": [
       "top"
     ]
   }

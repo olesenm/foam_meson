@@ -6,7 +6,6 @@ CACHE_TOTDESC = False  # Only enable this if you are know what you are doing
 
 from os import path, listdir, walk
 import os
-import subprocess
 from meson_codegen import *
 from scan_wmake import *
 import sys
@@ -535,45 +534,8 @@ def main():
         "applications/utilities/mesh"
     ).parts
 
-    # Without these fixes, grouping cannot be done
-
-    # totdesc.elements["lib_lagrangianTurbulence"].outpath = Path("src").parts
-    # totdesc.elements["lib_lagrangianIntermediate"].outpath = Path("src").parts
-    # totdesc.elements["lib_lagrangianSpray"].outpath = Path("src").parts
-    # totdesc.elements["lib_coalCombustion"].outpath = Path("src").parts
-    # totdesc.elements["lib_turbulenceModels"].outpath = Path("src").parts
-    # totdesc.elements["lib_snappyHexMesh"].outpath = Path("src").parts
-    # totdesc.elements["lib_compressibleTurbulenceModels"].outpath = Path("src").parts
-    # totdesc.elements["lib_turbulenceModelSchemes"].outpath = Path("src").parts
-    # totdesc.elements["lib_radiationModels"].outpath = Path("src").parts
-    # totdesc.elements["lib_compressibleTurbulenceModels"].outpath = Path("src").parts
-    # totdesc.elements["lib_liquidPropertiesFvPatchFields"].outpath = Path("src").parts
-    # totdesc.elements["lib_geometricVoF"].outpath = Path("src").parts
-
-    import json
-
-    ar = []
-    for key, value in totdesc.elements.items():
-        assert key == value.provides
-        ar.append(
-            {
-                "provides": value.provides,
-                "ddeps": value.ddeps,
-                "ideal_path": value.ideal_path,
-            }
-        )
-    with open("data.json", "w", encoding="utf-8") as f:
-        json.dump(ar, f, indent=4)
-    exit(1)
-
-    with open("data.json", "w", encoding="utf-8") as f:
-        json.dump(totdesc.elements, f, ensure_ascii=False, indent=4, cls=MyEncoder)
-    for el in totdesc.elements:
-        print(el)
-        # pdb.set_trace()
-    exit(1)
-
-    generated_files = totdesc.writeToFileSystem()
+    totdesc.set_outpaths()
+    totdesc.writeToFileSystem()
 
 
 if __name__ == "__main__":

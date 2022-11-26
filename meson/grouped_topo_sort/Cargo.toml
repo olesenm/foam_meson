@@ -25,5 +25,5 @@ name = "mylib"
 path = "src/lib.rs"
 
 [[bin]]
-name = "mybin"
+name = "grouped_topo_sort"
 path = "src/bin.rs"

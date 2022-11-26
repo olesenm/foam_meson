@@ -7,6 +7,8 @@ DRYRUN = False
 import os
 import re
 import copy
+import subprocess
+import json
 import graphlib
 from collections import defaultdict
 from pathlib import Path
@@ -108,6 +110,29 @@ class BuildDesc:
             outpath = Path(self.root, *el.outpath, "meson.build")
             with open(outpath, "a") as ofile:
                 ofile.write(recipe)
+
+    # todo: documentation
+    def set_outpaths(self):
+        ar = []
+        for key, value in self.elements.items():
+            assert key == value.provides
+            ar.append(
+                {
+                    "provides": value.provides,
+                    "ddeps": value.ddeps,
+                    "ideal_path": value.ideal_path,
+                }
+            )
+        res = subprocess.check_output(
+            ["meson/grouped_topo_sort/target/release/grouped_topo_sort"],
+            text=True,
+            input=json.dumps(ar),
+        )
+        changes = json.loads(res)
+        for target in self.elements:
+            self.elements[target].outpath = self.elements[target].ideal_path
+        for change in changes:
+            self.elements[change["target"]].outpath = change["chosen_path"]
 
     def set_custom_prefix(self, path, custom):
         assert path.parts[-1] == "meson.build"
