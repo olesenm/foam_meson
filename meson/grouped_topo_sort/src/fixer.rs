@@ -58,6 +58,30 @@ fn cost_of_dir_a_before_dir_b(
     )
 }
 
+/// Returns what targets always need to be hoisted just because of the fact that dir_a exist.
+fn cost_of_dir_a(part: &Graph<EquivNode, ()>, dir_a: &DirName) -> Vec<HoistsNeeded> {
+    let nodes_in_a = part
+        .node_references()
+        .filter(|(ni, nw)| nw.path.get(0) == Some(dir_a));
+    let other_nodes = part
+        .node_references()
+        .filter(|(ni, nw)| nw.path.get(0) != Some(dir_a));
+    nodes_in_a
+        .permutations(2)
+        .cartesian_product(other_nodes)
+        .filter(|(dir_els, (top_i, top_w))| {
+            has_path_connecting(part, dir_els[0].0, *top_i, None)
+                && has_path_connecting(part, *top_i, dir_els[1].0, None)
+        })
+        .map(|(dir_els, (top_i, top_w))| {
+            HoistsNeeded::Any(vec![
+                HoistsNeeded::Single(dir_els[0].0),
+                HoistsNeeded::Single(dir_els[1].0),
+            ])
+        })
+        .collect::<Vec<_>>()
+}
+
 /// If a directory contains only one node, we hoist these nodes up. Note that
 /// `move_singles_downwards` will later revert this affect.
 fn hoist_singles_upward(part: &mut Graph<EquivNode, ()>) {
@@ -141,11 +165,10 @@ fn remove_always_happy(part: &mut Graph<EquivNode, ()>) {
     dbg!(part.node_count());
 }
 
-/// Some more or less trivial simplifications to the tree. These are (afaik) not necessary for correctness, but boost the performance by removing some elements.
+/// Some more or less trivial simplifications to the tree.
 fn simple_simplifications<'o>(part: &mut Graph<Node<'o>, ()>) {
-    hoist_singles_upward(part);
-    kill_common_prefix(part); // todo: is this needed for correctness, or just for performance
-                              //remove_always_happy(part);
+    hoist_singles_upward(part); // Afaik not needed for correctness, only for performance and to make stuff look pretty
+    kill_common_prefix(part);
 }
 
 /// Number of hoists that are needed if we want the dirs to be in the `order` order.
@@ -153,6 +176,7 @@ fn cost_of_order(
     node_count: usize,
     cost_of_a_before_b: &mut Vec<Vec<FastHN>>,
     order: &Vec<usize>,
+    hoists_always_needed: &mut FastHN,
 ) -> HashSet<FastInt> {
     // If e.g. `7` comes before `5` in `order`, then `cost_of_a_before_b[7][5]` will be added to `all`, but `cost_of_a_before_b[5][7]` won't.
     let all = cost_of_a_before_b
@@ -166,6 +190,7 @@ fn cost_of_order(
                 })
                 .map(|(_r, y)| y)
         })
+        .chain(std::iter::once(hoists_always_needed))
         .filter(|el| !el.0.is_empty())
         .collect::<Vec<_>>();
     minimum_hoists_needed_approx(node_count, all)
@@ -188,32 +213,53 @@ fn find_hoists_needed_for_subgraph<'a, 'o: 'a>(
         .filter(|x| x.path.is_empty())
         .map(|x| DirOrSingle::Single(x.provides));
     let owner = dirs.chain(singles).collect::<Vec<_>>();
-    let dir_graph = gen_dir_graph_helper(&owner, &part, &prefix);
+    // We pass an empty vec as the prefix argument, because kill_common_prefix removed that prefix.
+    let dir_graph = gen_dir_graph_helper(&owner, &part, &vec![]);
     let dirs = part
         .node_weights()
         .filter(|x| !x.path.is_empty())
         .map(|x| &x.path[0])
         .unique()
         .collect::<Vec<_>>();
+    let hoists_always_needed = HoistsNeeded::All(
+        dirs.iter()
+            .map(|dir| cost_of_dir_a(&part, dir))
+            .flatten()
+            .collect::<Vec<_>>(),
+    );
+    let mut hoists_always_needed = FastHN::from_hn(hoists_always_needed);
 
     let mut cost_of_a_before_b = dirs
         .iter()
-        .map(|x| {
+        .map(|a| {
             dirs.iter()
-                .map(|y| FastHN::from_hn(cost_of_dir_a_before_dir_b(&part, x, y)))
+                .map(|b| FastHN::from_hn(cost_of_dir_a_before_dir_b(&part, a, b)))
                 .collect::<Vec<_>>()
         })
         .collect::<Vec<_>>();
-    // performance: cost_of_a_before_b[x][y].0.len() == 0 for some x and y. Maybe we can use this to improve performance, because it implies that cost_of_order(..., ..., vec![a,b,x,y,c,d]) == cost_of_order(..., ..., vec![a,b,y,x,c,d]), so we don't need to try both permuations.
 
-    print_time_complexity_note(dirs.len());
+    print_time_complexity_note(
+        dirs.len(),
+        cost_of_a_before_b
+            .iter()
+            .flatten()
+            .map(|x| x.0.len())
+            .sum::<usize>()
+            + hoists_always_needed.0.len(),
+    );
 
     let (_optimal_order, hoists_needed) = permutations_of(&(0..dirs.len()).collect::<Vec<_>>())
+        // performance: cost_of_a_before_b[x][y].0.len() == 0 for some x and y. Maybe we can use this to improve performance, because it implies that cost_of_order(..., ..., vec![a,b,x,y,c,d]) == cost_of_order(..., ..., vec![a,b,y,x,c,d]), so we don't need to try both permuations.
         .map(|order| {
             let order = order.copied().collect::<Vec<_>>();
             (
                 order.clone(),
-                cost_of_order(part.node_count(), &mut cost_of_a_before_b, &order),
+                cost_of_order(
+                    part.node_count(),
+                    &mut cost_of_a_before_b,
+                    &order,
+                    &mut hoists_always_needed,
+                ),
             )
         })
         .min_by_key(|el| el.1.len())

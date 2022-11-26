@@ -15,7 +15,7 @@ pub mod fuzz_input {
         pub ideal_path: Vec<u8>,
     }
 }
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct ImportedTarget {
     pub provides: String,

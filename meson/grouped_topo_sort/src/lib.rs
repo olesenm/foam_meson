@@ -237,6 +237,8 @@ fn gen_dir_graph_helper<'a, 'o: 'a>(
         if let Some(source) = &points[0] {
             if let Some(target) = &points[1] {
                 if source != target {
+                    assert!(local.node_map.contains_key(&source));
+                    assert!(local.node_map.contains_key(&target));
                     local.add_edge(&source, &target, ());
                 }
             }
@@ -330,16 +332,15 @@ impl<K: Eq + Hash, NW, EW> BetterGraph<K, NW, EW> {
     }
 }
 
-fn print_time_complexity_note(n: usize) {
-    eprintln!(
-        "We now run an algorithm with a time-complexity of O(n! n^2), with n = {}.",
-        n
-    );
+fn print_time_complexity_note(n: usize, m: usize) {
     let steps = (1..n)
         .fold(1_usize, |acc, x| acc.checked_mul(x).unwrap())
-        .checked_mul(n.checked_pow(2).unwrap())
+        .checked_mul(m)
         .unwrap();
-    eprintln!(" -> {} steps.", steps);
+    eprintln!(
+        "We now run an algorithm with a time-complexity of O(n! m), with n = {}, m = {}. -> {} steps.",
+        n, m, steps
+    );
 }
 
 /// `deps` and `tree` contains some redundant information. This function asserts that this redundant information matches.
