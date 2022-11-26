@@ -269,7 +269,7 @@ fn find_hoists_needed_for_subgraph<'a, 'o: 'a>(
 
     all_hoists.extend(hoists_needed.iter().map(|&x| Hoist {
         target: part[NodeIndex::new(x)].provides,
-        actual_path: prefix.iter().cloned().cloned().collect::<Vec<DirName>>(),
+        chosen_path: prefix.iter().cloned().cloned().collect::<Vec<DirName>>(),
     }));
 }
 
