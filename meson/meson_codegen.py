@@ -124,7 +124,8 @@ class BuildDesc:
                 }
             )
         res = subprocess.check_output(
-            ["meson/grouped_topo_sort/target/release/grouped_topo_sort"],
+            "cd meson/grouped_topo_sort/ && cargo run --release",
+            shell=True,
             text=True,
             input=json.dumps(ar),
         )
@@ -271,6 +272,7 @@ class BuildDesc:
         try:
             order = tuple(ts.static_order())
         except graphlib.CycleError as ex:
+            # If our rust binary grouped_topo_sort worked correctly, this exception will never occur.
             print("UNABLE TO CODEGEN BECAUSE OF CYCLE IN: ", subgroup)
             cycle = ex.args[1]
             cycle.reverse()

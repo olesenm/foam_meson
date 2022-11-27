@@ -17,6 +17,8 @@ optional_deps = {
     "gmp": "lib",
     "metis": "lib",
     "readline": "lib",
+    "perf_main": "lib",
+    "GL": "lib",
     "CGAL": "dep",
     "zoltan": "broken",
     "mgrid": "broken",
@@ -40,7 +42,7 @@ def disccache(original_func):
     def new_func(*args, **kwargs):
         if not ACTIVATE_CACHE:
             return original_func(*args, **kwargs)
-        fp = Path("disccache") / original_func.__name__
+        fp = Path("disccache") / (original_func.__name__ + ".pickle")
         if fp.exists():
             return pickle.load(open(fp, "rb"))
         else:
@@ -64,7 +66,7 @@ def find_all_wmake_dirs(PROJECT_ROOT, yamldata):
             continue
         if el in disable_scanning:
             continue
-        ret.append(el)
+        ret.append(el.relative_to(PROJECT_ROOT))
     return ret
 
 
@@ -84,8 +86,8 @@ def commentRemover(text):
     return re.sub(pattern, replacer, text)
 
 
-def parse_options_file(wmake_dir):
-    makefilesource = (wmake_dir / "Make" / "options").read_text()
+def parse_options_file(PROJECT_ROOT, wmake_dir):
+    makefilesource = (PROJECT_ROOT / wmake_dir / "Make" / "options").read_text()
     makefilesource = commentRemover(makefilesource)
     makefilesource = makefilesource.replace("include $(GENERAL_RULES)/mpi-rules", "")
 
@@ -94,7 +96,7 @@ def parse_options_file(wmake_dir):
         "${LIB_SRC}": path.relpath("src", wmake_dir),
         "$(FOAM_UTILITIES)": path.relpath("applications/utilities", wmake_dir),
         "$(FOAM_SOLVERS)": path.relpath("applications/solvers", wmake_dir),
-        "$(GENERAL_RULES)": "wmake/rules/General",
+        "$(GENERAL_RULES)": str(PROJECT_ROOT / "wmake/rules/General"),
         "$(PLIBS)": "-lmpi",
         "$(PFLAGS)": "-DMPICH_SKIP_MPICXX -DOMPI_SKIP_MPICXX",
     }
@@ -107,6 +109,10 @@ def parse_options_file(wmake_dir):
             "\nprint_stuff:\n\techo $(LIB_INC)\n\techo $(EXE_INC)\n\techo $(LIB_LIBS)\n\techo $(EXE_LIBS)\n"
         )
         makeout.flush()
+        # print(makeout.name)
+        # import time
+
+        # time.sleep(10000)
         vars = (
             subprocess.check_output(
                 "make -s print_stuff --file " + makeout.name,
@@ -126,8 +132,11 @@ def parse_options_file(wmake_dir):
 
 
 @disccache
-def all_parse_options_file(wmake_dirs):
-    return {wmake_dir: parse_options_file(wmake_dir) for wmake_dir in wmake_dirs}
+def all_parse_options_file(PROJECT_ROOT, wmake_dirs):
+    return {
+        wmake_dir: parse_options_file(PROJECT_ROOT, wmake_dir)
+        for wmake_dir in wmake_dirs
+    }
 
 
 class Include:
@@ -156,9 +165,9 @@ primitives/Tensor/floatTensor/floatTensor.C
 """
 
 
-def preprocess_files_file(wmake_dir):
+def preprocess_files_file(PROJECT_ROOT, wmake_dir):
     specials = []
-    src = (wmake_dir / "Make" / "files").read_text()
+    src = (PROJECT_ROOT / wmake_dir / "Make" / "files").read_text()
     if hardcoded_precision in src:
         specials.append("precision")
         src = src.replace(hardcoded_precision, "\n")
@@ -186,8 +195,11 @@ def preprocess_files_file(wmake_dir):
 
 
 @disccache
-def all_preprocess_files_file(wmake_dirs):
-    return {wmake_dir: preprocess_files_file(wmake_dir) for wmake_dir in wmake_dirs}
+def all_preprocess_files_file(PROJCET_ROOT, wmake_dirs):
+    return {
+        wmake_dir: preprocess_files_file(PROJCET_ROOT, wmake_dir)
+        for wmake_dir in wmake_dirs
+    }
 
 
 class TargetType(Enum):

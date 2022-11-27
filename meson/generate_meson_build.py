@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-GROUP_FULL_DIRS = True
+GROUP_FULL_DIRS = False
 EXPLAIN_CODEGEN = False
 CACHE_TOTDESC = False  # Only enable this if you are know what you are doing
 
@@ -13,16 +13,13 @@ import textwrap
 import yaml
 import pdb
 import cProfile
+import subprocess
+import shutil
 
 
 def from_this_directory():
     os.chdir(path.dirname(sys.argv[0]))
 
-
-from_this_directory()
-os.chdir("..")
-
-PROJECT_ROOT = Path(os.getcwd())
 
 assert "WM_PROJECT_DIR" not in os.environ, "Don't source etc/bashrc"
 
@@ -42,7 +39,7 @@ def info(type, value, tb):
         pdb.pm()
 
 
-sys.excepthook = info  # Todo: disable before release
+# sys.excepthook = info  # Todo: disable before release
 
 # attempting to add a target with one of these names needs to fail immediately to avoid confusing with system libraries
 target_blacklist = ["lib_boost_system", "lib_fftw3", "lib_mpi", "lib_z"]
@@ -355,7 +352,7 @@ def wmake_to_meson(PROJECT_ROOT, wmake_dir, preprocessed, parsed_options):
             provides=inter.varname,
             ddeps=order_depends,
             template=template,
-            ideal_path=wmake_dir.relative_to(PROJECT_ROOT).parts,
+            ideal_path=wmake_dir.parts,
             debuginfo="This recipe originated from " + str(dirpath),
         ),
         rec_dirs_srcs,
@@ -375,14 +372,37 @@ class MyEncoder(JSONEncoder):
 
 
 def main():
+    from_this_directory()
+    os.chdir("..")
+    Path("disccache").mkdir(exist_ok=True)
+
+    PATCH_OUTPUT = "patch.diff"
+    PROJECT_ROOT = Path(os.getcwd()) / "disccache" / "dev"
+
+    if not PROJECT_ROOT.exists():
+        subprocess.check_call(
+            [
+                "git",
+                "clone",
+                "https://develop.openfoam.com/Development/openfoam.git",
+                PROJECT_ROOT,
+                "--depth=1",
+            ]
+        )
+
+    if "## About OpenFOAM" not in (PROJECT_ROOT / "README.md").read_text():
+        raise ValueError(
+            "It looks like PROJECT_ROOT does not point to an OpenFOAM repository"
+        )
+
     with open("meson/data.yaml", "r") as stream:
         yamldata = yaml.safe_load(stream)
     broken_dirs = [PROJECT_ROOT / p for p in yamldata["broken_dirs"]]
 
     wmake_dirs = find_all_wmake_dirs(PROJECT_ROOT, yamldata)
     totdesc = BuildDesc(PROJECT_ROOT)
-    preprocessed = all_preprocess_files_file(wmake_dirs)
-    parsed_options = all_parse_options_file(wmake_dirs)
+    preprocessed = all_preprocess_files_file(PROJECT_ROOT, wmake_dirs)
+    parsed_options = all_parse_options_file(PROJECT_ROOT, wmake_dirs)
     all_configure_time_recursively_scanned_dirs = set()
 
     broken_provides = []
@@ -399,6 +419,10 @@ def main():
         totdesc.add_node(node)
 
     totdesc.remove_what_depends_on(broken_provides)
+    if len(totdesc.elements) < 100:
+        print(
+            "WARNING: An unusually low amount of targets were found. We probably did not find the correct OpenFOAM folder"
+        )
 
     recursive_regen_dirs = ["src", "applications", "tutorials"]
     recursive_regen_dirs_joined = ", ".join([f"'{el}'" for el in recursive_regen_dirs])
@@ -427,7 +451,7 @@ def main():
     mainsrc = textwrap.dedent(
         f"""
     project('OpenFOAM', 'c', 'cpp',
-    version: run_command('meson' / 'get_version.sh', '.', check: true).stdout(),
+    version: run_command('etc' / 'meson_helpers' / 'get_version.sh', '.', check: true).stdout(),
     default_options : ['warning_level=0', 'b_lundef=false', 'b_asneeded=false'])
 
     cmake = import('cmake')
@@ -466,7 +490,7 @@ def main():
     foamConfig_cpp = custom_target('foamConfig.cpp',
     output : 'foamConfig.cpp',
     input : 'src/OpenFOAM/global/foamConfig.Cver',
-    command : [meson.source_root() / 'meson' / 'set_versions_in_foamConfig_Cver.sh', meson.source_root(), '@OUTPUT@'])
+    command : [meson.source_root() / 'etc' / 'meson_helpers' / 'set_versions_in_foamConfig_Cver.sh', meson.source_root(), '@OUTPUT@'])
 
     m_dep = cppc.find_library('m')
     dl_dep = cppc.find_library('dl')
@@ -486,12 +510,12 @@ def main():
     output : '@PLAINNAME@.yy.cpp',
     arguments : ['--c++', '--full', '-o', '@OUTPUT@', '@INPUT@'])
 
-    m4lemon = find_program('meson/m4lemon.sh')
+    m4lemon = find_program('etc' / 'meson_helpers' / 'm4lemon.sh')
 
     lnInclude_hack = custom_target(
         output: 'fake.h',
         command: [
-            meson.source_root() / 'meson' / 'create_all_symlinks.py',
+            meson.source_root() / 'etc' / 'meson_helpers' / 'create_all_symlinks.py',
             meson.source_root(),
             meson.build_root(),
             run_command('date', check: true).stdout().split('\\n')[0] # To make sure that this target is rerun if meson is reconfigured. split('\\n')[0] is there because build.ninja would get a bit ugly otherwise.
@@ -536,6 +560,22 @@ def main():
 
     totdesc.set_outpaths()
     totdesc.writeToFileSystem()
+    Path(PROJECT_ROOT / "etc/meson_helpers").mkdir(exist_ok=True)
+    for fn in [
+        "get_version.sh",
+        "set_versions_in_foamConfig_Cver.sh",
+        "m4lemon.sh",
+        "create_all_symlinks.py",
+    ]:
+        shutil.copyfile(f"meson/{fn}", PROJECT_ROOT / "etc/meson_helpers" / fn)
+    shutil.copyfile("meson_options.txt", PROJECT_ROOT / "meson_options.txt")
+
+    assert (
+        os.system(
+            f'cd "{PROJECT_ROOT}" && git add -A && git diff HEAD > {os.getcwd() + "/" + PATCH_OUTPUT} && git reset HEAD'
+        )
+        == 0
+    )
 
 
 if __name__ == "__main__":
