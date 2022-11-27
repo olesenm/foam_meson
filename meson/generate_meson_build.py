@@ -2,7 +2,8 @@
 
 GROUP_FULL_DIRS = False
 EXPLAIN_CODEGEN = False
-CACHE_TOTDESC = False  # Only enable this if you are know what you are doing
+REGEN_ON_DIR_CHANGE = False
+LN_INCLUDE_MODEL = "always_regen"  # "always_regen" or "regen_on_reconfigure"
 
 from os import path, listdir, walk
 import os
@@ -253,7 +254,7 @@ def wmake_to_meson(PROJECT_ROOT, wmake_dir, preprocessed, parsed_options):
         template += f"""
         rec_dirs_srcs = {fix_ws_inline(to_meson_array(rec_dirs_srcs_quoted), 8, True)}
         foreach dir : rec_dirs_srcs
-            srcfiles += run_command(meson.source_root() + '/meson/rec_C.sh', dir, check: true).stdout().strip().split('\\n')
+            srcfiles += run_command(meson.source_root() / 'etc' / 'meson_helpers' / 'rec_C.sh', dir, check: true).stdout().strip().split('\\n')
         endforeach
         """
     template += f"""
@@ -424,7 +425,10 @@ def main():
             "WARNING: An unusually low amount of targets were found. We probably did not find the correct OpenFOAM folder"
         )
 
-    recursive_regen_dirs = ["src", "applications", "tutorials"]
+    if REGEN_ON_DIR_CHANGE:
+        recursive_regen_dirs = ["src", "applications", "tutorials"]
+    else:
+        recursive_regen_dirs = []
     recursive_regen_dirs_joined = ", ".join([f"'{el}'" for el in recursive_regen_dirs])
     recursive_regen_dirs = [PROJECT_ROOT / el for el in recursive_regen_dirs]
 
@@ -511,23 +515,45 @@ def main():
     arguments : ['--c++', '--full', '-o', '@OUTPUT@', '@INPUT@'])
 
     m4lemon = find_program('etc' / 'meson_helpers' / 'm4lemon.sh')
-
-    lnInclude_hack = custom_target(
-        output: 'fake.h',
-        command: [
-            meson.source_root() / 'etc' / 'meson_helpers' / 'create_all_symlinks.py',
-            meson.source_root(),
-            meson.build_root(),
-            run_command('date', check: true).stdout().split('\\n')[0] # To make sure that this target is rerun if meson is reconfigured. split('\\n')[0] is there because build.ninja would get a bit ugly otherwise.
-            ])
-
-    if meson.get_cross_property('hack_to_detect_forks_regen_on_dir_change', 0) == 1
-        regen_on_dir_change([{recursive_regen_dirs_joined}], recursive: true)
-    else
-        warning('Your meson version does not support regen_on_dir_change. Either get use the meson version from https://github.com/volker-weissmann/meson , or run "touch ' + meson.source_root() + '/meson.build" everytime you add a new source file. Otherwise you might get a stale build.')
-    endif
     """
     )
+    if LN_INCLUDE_MODEL == "regen_on_reconfigure":
+        mainsrc += textwrap.dedent(
+            f"""
+        lnInclude_hack = custom_target(
+            output: 'fake.h',
+            command: [
+                meson.source_root() / 'etc' / 'meson_helpers' / 'create_all_symlinks.py',
+                meson.source_root(),
+                meson.build_root(),
+                run_command('date', check: true).stdout().split('\\n')[0] # To make sure that this target is rerun if meson is reconfigured. split('\\n')[0] is there because build.ninja would get a bit ugly otherwise.
+                ])
+        """
+        )
+    elif LN_INCLUDE_MODEL == "always_regen":
+        mainsrc += textwrap.dedent(
+            f"""
+        lnInclude_hack = custom_target(
+            output: 'fake.h',
+            command: [
+                meson.source_root() / 'etc' / 'meson_helpers' / 'create_all_symlinks.py',
+                meson.source_root(),
+                meson.build_root(),
+                ], build_always_stale: true)
+        """
+        )
+    else:
+        raise ValueError
+    if recursive_regen_dirs_joined != "":
+        mainsrc += textwrap.dedent(
+            f"""
+        if meson.get_cross_property('hack_to_detect_forks_regen_on_dir_change', 0) == 1
+            regen_on_dir_change([{recursive_regen_dirs_joined}], recursive: true)
+        else
+            warning('Your meson version does not support regen_on_dir_change. Either get use the meson version from https://github.com/volker-weissmann/meson , or run "touch ' + meson.source_root() + '/meson.build" everytime you add a new source file. Otherwise you might get a stale build.')
+        endif
+        """
+        )
 
     totdesc.set_custom_prefix(PROJECT_ROOT / "meson.build", mainsrc)
 
@@ -561,13 +587,17 @@ def main():
     totdesc.set_outpaths()
     totdesc.writeToFileSystem()
     Path(PROJECT_ROOT / "etc/meson_helpers").mkdir(exist_ok=True)
-    for fn in [
+    helper_scripts = [
         "get_version.sh",
         "set_versions_in_foamConfig_Cver.sh",
         "m4lemon.sh",
         "create_all_symlinks.py",
-    ]:
+    ]
+    if GROUP_FULL_DIRS:
+        helper_scripts.append("rec_C.sh")
+    for fn in helper_scripts:
         shutil.copyfile(f"meson/{fn}", PROJECT_ROOT / "etc/meson_helpers" / fn)
+
     shutil.copyfile("meson_options.txt", PROJECT_ROOT / "meson_options.txt")
 
     assert (
