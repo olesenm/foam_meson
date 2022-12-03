@@ -20,6 +20,7 @@ optional_deps = {
     "perf_main": "lib",
     "GL": "lib",
     "CGAL": "dep",
+    # "gmp": "dep",
     "zoltan": "broken",
     "mgrid": "broken",
     "ccmio": "broken",
@@ -56,17 +57,18 @@ def disccache(original_func):
 # Find all directories that have a subdirectory called Make and are not marked as broken or ignored.
 @disccache
 def find_all_wmake_dirs(PROJECT_ROOT, yamldata):
-    disable_scanning = [PROJECT_ROOT / p for p in yamldata["disable_scanning"]]
+    disable_scanning = [Path(p) for p in yamldata["disable_scanning"]]
     ret = []
     for el in PROJECT_ROOT.rglob("Make"):
         if not path.isdir(el):
             continue
+        el = el.relative_to(PROJECT_ROOT)
         el = el.parent
         if "codeTemplates" in el.parts:
             continue
         if el in disable_scanning:
             continue
-        ret.append(el.relative_to(PROJECT_ROOT))
+        ret.append(el)
     return ret
 
 

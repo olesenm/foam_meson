@@ -1,6 +1,6 @@
-#!/bin/bash
-
-set -e
+#!/bin/sh
+set -euo pipefail
+IFS=$'\n\t'
 
 rootdir="$1"
 workdir="$2"

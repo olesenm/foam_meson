@@ -1,6 +1,8 @@
-# The following directories do not build, even with wmake (at least on my
-# machine). Running `meson/verify_data.py` verifies this. So we have every right
+# The following directories do not build, even with wmake (at least on some
+# machines). Running `meson/verify_data.py` verifies this (With the exception of applications/test/Random). So we have every right
 # to ignore them.
+
+# todo: run verify_data.py
 
 disable_scanning:
   # preprocess_files_file will fail on the following directory
@@ -12,6 +14,16 @@ broken_dirs:
   - applications/test/rigidBodyDynamics/spring
   - applications/test/coordinateSystem
   - applications/test/labelRanges
+  - applications/test/boolList
+  - applications/test/matrices/EigenMatrix
+  - applications/test/parallel-nonBlocking
+
+  # Test-Random.C contains approx.:
+  # #ifdef __linux__
+  # #include <ieee754.h>
+  # #endif
+  # ieee754.h is part of the glibc. If a linux machine uses e.g. musl instead of glibc this will not compile.
+  - applications/test/Random
 
   # I don't know how to build this
   - applications/utilities/mesh/generation/foamyMesh/foamyHexMeshSurfaceSimplify

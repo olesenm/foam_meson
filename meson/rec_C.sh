@@ -1,4 +1,6 @@
 #!/bin/sh
+set -euo pipefail
+IFS=$'\n\t'
 
 # If you see something like
 # run_command(meson.source_root() + '/meson/rec_C.sh', 'some/path', check: true).stdout().strip().split('\n')

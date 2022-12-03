@@ -264,31 +264,27 @@ def wmake_to_meson(PROJECT_ROOT, wmake_dir, preprocessed, parsed_options):
     cpp_args = {fix_ws_inline(to_meson_array(cpp_args), 4, True)}
     """
 
-    if (
-        wmake_dir
-        == PROJECT_ROOT / "applications/utilities/surface/surfaceBooleanFeatures"
-    ):
+    if wmake_dir == Path("applications/utilities/surface/surfaceBooleanFeatures"):
         order_depends.append("lib_PolyhedronReader")
         template += textwrap.dedent(
             """
-        if cgal_dep.found()
+        if cgal_dep.found() # and gmp_dep.found()
             cpp_args += '-I' + meson.source_root() / 'applications/utilities/surface/surfaceBooleanFeatures/PolyhedronReader'
             link_with += lib_PolyhedronReader
             dependencies += cgal_dep
+            # dependencies += gmp_dep
         else
             cpp_args += '-DNO_CGAL'
         endif
         """
         )
-    elif is_subdir(PROJECT_ROOT / "src/OpenFOAM", wmake_dir):
+    elif is_subdir("src/OpenFOAM", wmake_dir):
         template += textwrap.dedent(
             """
             dependencies += z_dep
             """
         )
-    elif is_subdir(
-        PROJECT_ROOT / "applications/utilities/mesh/manipulation/setSet", wmake_dir
-    ):
+    elif is_subdir("applications/utilities/mesh/manipulation/setSet", wmake_dir):
         template += textwrap.dedent(
             """
             if readline_dep.found()
@@ -298,7 +294,7 @@ def wmake_to_meson(PROJECT_ROOT, wmake_dir, preprocessed, parsed_options):
             """
         )
     elif is_subdir(
-        PROJECT_ROOT / "applications/utilities/mesh/manipulation/renumberMesh",
+        "applications/utilities/mesh/manipulation/renumberMesh",
         wmake_dir,
     ):
         template += textwrap.dedent(
@@ -309,7 +305,7 @@ def wmake_to_meson(PROJECT_ROOT, wmake_dir, preprocessed, parsed_options):
             endif
             """
         )
-    elif is_subdir(PROJECT_ROOT / "src/OSspecific/POSIX", wmake_dir):
+    elif is_subdir("src/OSspecific/POSIX", wmake_dir):
         template += textwrap.dedent(
             """
             if fs.is_file('/usr/include/sys/inotify.h')
@@ -377,7 +373,6 @@ def main():
     os.chdir("..")
     Path("disccache").mkdir(exist_ok=True)
 
-    PATCH_OUTPUT = "patch.diff"
     PROJECT_ROOT = Path(os.getcwd()) / "disccache" / "dev"
 
     if not PROJECT_ROOT.exists():
@@ -398,7 +393,7 @@ def main():
 
     with open("meson/data.yaml", "r") as stream:
         yamldata = yaml.safe_load(stream)
-    broken_dirs = [PROJECT_ROOT / p for p in yamldata["broken_dirs"]]
+    broken_dirs = [Path(p) for p in yamldata["broken_dirs"]]
 
     wmake_dirs = find_all_wmake_dirs(PROJECT_ROOT, yamldata)
     totdesc = BuildDesc(PROJECT_ROOT)
@@ -455,10 +450,9 @@ def main():
     mainsrc = textwrap.dedent(
         f"""
     project('OpenFOAM', 'c', 'cpp',
-    version: run_command('etc' / 'meson_helpers' / 'get_version.sh', '.', check: true).stdout(),
-    default_options : ['warning_level=0', 'b_lundef=false', 'b_asneeded=false'])
+        version: run_command('etc' / 'meson_helpers' / 'get_version.sh', '.', check: true).stdout(),
+        default_options : ['warning_level=0', 'b_lundef=false', 'b_asneeded=false'])
 
-    cmake = import('cmake')
     fs = import('fs')
     pkg = import('pkgconfig')
 
@@ -516,7 +510,7 @@ def main():
 
     m4lemon = find_program('etc' / 'meson_helpers' / 'm4lemon.sh')
     """
-    )
+    ).lstrip()
     if LN_INCLUDE_MODEL == "regen_on_reconfigure":
         mainsrc += textwrap.dedent(
             f"""
@@ -580,7 +574,7 @@ def main():
     # This could be considered a bug in meson, but meson (probably)
     # will not fix this:
     # https://github.com/mesonbuild/meson/issues/8752
-    totdesc.elements["exe_extrude2DMesh"].outpath = Path(
+    totdesc.elements["exe_extrude2DMesh"].ideal_path = Path(
         "applications/utilities/mesh"
     ).parts
 
@@ -600,6 +594,12 @@ def main():
 
     shutil.copyfile("meson_options.txt", PROJECT_ROOT / "meson_options.txt")
 
+    foam_hash = subprocess.check_output(
+        ["git", "rev-parse", "--verify", "HEAD"],
+        text=True,
+        cwd=PROJECT_ROOT,
+    ).strip()[0:10]
+    PATCH_OUTPUT = f"patch_for_{foam_hash}.diff"
     assert (
         os.system(
             f'cd "{PROJECT_ROOT}" && git add -A && git diff HEAD > {os.getcwd() + "/" + PATCH_OUTPUT} && git reset HEAD'
