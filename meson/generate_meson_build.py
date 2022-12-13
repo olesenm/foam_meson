@@ -146,9 +146,17 @@ def fix_ws_inline(src: str, spaces: int, prefixed: bool = False) -> str:
     return src
 
 
+def add_line_if(content: str, cond: bool) -> str:
+    if cond:
+        return content
+    else:
+        return "# REMOVE LINE"
+
+
 # A wrapper around str that changes some whitespace stuff
 class WhitespaceFixer:
     temp: str
+    regex = re.compile(r"\n((?!# REMOVE LINE).)*# REMOVE LINE\n")
 
     def __init__(self):
         self.temp = ""
@@ -165,7 +173,9 @@ class WhitespaceFixer:
         return self
 
     def __str__(self):
-        return self.temp.replace("# REMOVE NEWLINE\n", "")
+        ret = self.temp.replace("# REMOVE NEWLINE\n", "")
+        ret = self.regex.sub("\n", ret)
+        return ret
 
 
 def wmake_to_meson(PROJECT_ROOT, wmake_dir, preprocessed, parsed_options):
@@ -240,7 +250,7 @@ def wmake_to_meson(PROJECT_ROOT, wmake_dir, preprocessed, parsed_options):
             case RecursiveInclude(path):
                 if path.exists():
                     cpp_args.append(
-                        f"'-I' + meson.build_root() / '{path.relative_to(PROJECT_ROOT)}'"
+                        f"'-I' + recursive_include_dirs / '{path.relative_to(PROJECT_ROOT)}'"
                     )
                 else:
                     print(f"Warning: {path} does not exist")
@@ -268,11 +278,10 @@ def wmake_to_meson(PROJECT_ROOT, wmake_dir, preprocessed, parsed_options):
         order_depends.append("lib_PolyhedronReader")
         template += textwrap.dedent(
             """
-        if cgal_dep.found() # and gmp_dep.found()
+        if cgal_dep.found()
             cpp_args += '-I' + meson.source_root() / 'applications/utilities/surface/surfaceBooleanFeatures/PolyhedronReader'
             link_with += lib_PolyhedronReader
             dependencies += cgal_dep
-            # dependencies += gmp_dep
         else
             cpp_args += '-DNO_CGAL'
         endif
@@ -309,10 +318,14 @@ def wmake_to_meson(PROJECT_ROOT, wmake_dir, preprocessed, parsed_options):
         template += textwrap.dedent(
             """
             if fs.is_file('/usr/include/sys/inotify.h')
-                cpp_args += -DFOAM_USE_INOTIFY'
+                cpp_args += '-DFOAM_USE_INOTIFY'
             endif
             """
         )
+
+    build_by_default = not (
+        is_subdir("tutorials", wmake_dir) or is_subdir("applications/test", wmake_dir)
+    )
 
     func = None
     name = None
@@ -331,8 +344,10 @@ def wmake_to_meson(PROJECT_ROOT, wmake_dir, preprocessed, parsed_options):
                 cpp_args: cpp_args,
                 implicit_include_directories: false,
                 install: true,
+                {add_line_if("build_by_default: false,", not build_by_default)}
             )
     """
+
     if inter.typ == TargetType.lib:
         template += f"""
         pkg.generate({inter.varname})
@@ -357,7 +372,14 @@ def wmake_to_meson(PROJECT_ROOT, wmake_dir, preprocessed, parsed_options):
 
 
 def is_subdir(parent, child):
-    return str(child).startswith(os.path.abspath(str(parent)) + os.sep)
+    parent = str(parent)
+    child = str(child)
+    if child[-1] != os.sep:
+        child += os.sep
+    if parent[-1] != os.sep:
+        parent += os.sep
+    assert os.path.isabs(parent) == os.path.isabs(child)
+    return child.startswith(parent)
 
 
 from json import JSONEncoder
@@ -509,6 +531,9 @@ def main():
     arguments : ['--c++', '--full', '-o', '@OUTPUT@', '@INPUT@'])
 
     m4lemon = find_program('etc' / 'meson_helpers' / 'm4lemon.sh')
+
+    recursive_include_dirs = meson.build_root()
+    # lnInclude_hack ensures that `ls recursive_include_dirs/some/dir` would show symlinks to all files shown by `find meson.source_root()/some/dir -name "*.[CHh]"`
     """
     ).lstrip()
     if LN_INCLUDE_MODEL == "regen_on_reconfigure":
@@ -519,7 +544,7 @@ def main():
             command: [
                 meson.source_root() / 'etc' / 'meson_helpers' / 'create_all_symlinks.py',
                 meson.source_root(),
-                meson.build_root(),
+                recursive_include_dirs,
                 run_command('date', check: true).stdout().split('\\n')[0] # To make sure that this target is rerun if meson is reconfigured. split('\\n')[0] is there because build.ninja would get a bit ugly otherwise.
                 ])
         """
@@ -532,7 +557,7 @@ def main():
             command: [
                 meson.source_root() / 'etc' / 'meson_helpers' / 'create_all_symlinks.py',
                 meson.source_root(),
-                meson.build_root(),
+                recursive_include_dirs,
                 ], build_always_stale: true)
         """
         )

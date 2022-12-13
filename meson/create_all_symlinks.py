@@ -46,6 +46,8 @@ for (
 ]:
     create_symlinks_for_dir(source_root / el)
 
+(build_root / "source").symlink_to(source_root)
+
 Path(build_root / "fake.h").touch()  # To make sure this script is not rerun nedlessly
 
 # srcroot=$1

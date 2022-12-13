@@ -20,7 +20,6 @@ optional_deps = {
     "perf_main": "lib",
     "GL": "lib",
     "CGAL": "dep",
-    # "gmp": "dep",
     "zoltan": "broken",
     "mgrid": "broken",
     "ccmio": "broken",
