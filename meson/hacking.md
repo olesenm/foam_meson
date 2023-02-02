@@ -64,6 +64,10 @@ executable('exename', srcfiles, ...)
 # Todo
 - Compiling other OpenFoam versions
 - write readme stuff
+- Add the following comment before every hoisted target:
+```
+# The target above "belongs" into src/abc/meson.build, but because [reasons](docu link), it has to be placed here.
+```
 - Uninstall mpi, cgal, scotch, kahip, zoltan, mgridgen and check if the build still works
 - Run the unit tests
 - make sure everything gets installed at the same path as with wmake

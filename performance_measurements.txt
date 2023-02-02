@@ -1,0 +1,71 @@
+NICHT VERGESSEN:
+set WM_COMPILE_OPTION Debug
+
+
+No modifications
+./Allwmake
+________________________________________________________
+Executed in   82.96 secs    fish           external
+   usr time   54.55 secs  320.00 micros   54.55 secs
+   sys time   17.29 secs   19.00 micros   17.29 secs
+________________________________________________________
+Executed in   87.68 secs    fish           external
+   usr time   53.86 secs  249.00 micros   53.86 secs
+   sys time   17.46 secs   28.00 micros   17.46 secs
+________________________________________________________
+Executed in   79.04 secs    fish           external
+   usr time   53.45 secs  233.00 micros   53.45 secs
+   sys time   17.11 secs   47.00 micros   17.11 secs
+
+
+
+No modifications
+./Allwmake -j
+________________________________________________________
+Executed in   47.20 secs    fish           external
+   usr time   53.24 secs  267.00 micros   53.24 secs
+   sys time   16.07 secs   51.00 micros   16.07 secs
+________________________________________________________
+Executed in   54.02 secs    fish           external
+   usr time   54.30 secs  241.00 micros   54.30 secs
+   sys time   16.23 secs   46.00 micros   16.23 secs
+________________________________________________________
+Executed in   50.81 secs    fish           external
+   usr time   53.75 secs  258.00 micros   53.75 secs
+   sys time   16.01 secs   47.00 micros   16.01 secs
+________________________________________________________
+Executed in   50.17 secs    fish           external
+   usr time   53.76 secs  234.00 micros   53.76 secs
+   sys time   16.14 secs   68.00 micros   16.14 secs
+
+
+
+touch applications/solvers/lagrangian/reactingParcelFoam/reactingParcelFoam.C
+./Allwmake -j
+________________________________________________________
+Executed in   86.41 secs    fish           external
+   usr time   86.66 secs  281.00 micros   86.66 secs
+   sys time   18.35 secs   74.00 micros   18.35 secs
+________________________________________________________
+Executed in   94.13 secs    fish           external
+   usr time   89.22 secs  280.00 micros   89.22 secs
+   sys time   18.32 secs   89.00 micros   18.32 secs
+________________________________________________________
+Executed in   85.12 secs    fish           external
+   usr time   86.98 secs  290.00 micros   86.98 secs
+   sys time   17.91 secs   93.00 micros   17.91 secs
+
+touch src/OpenFOAM/meshes/lduMesh/lduMesh.C
+./Allwmake -j
+________________________________________________________
+Executed in   67.02 secs    fish           external
+   usr time   65.82 secs  292.00 micros   65.82 secs
+   sys time   18.38 secs   83.00 micros   18.38 secs
+________________________________________________________
+Executed in   69.68 secs    fish           external
+   usr time   65.65 secs  348.00 micros   65.65 secs
+   sys time   18.03 secs  102.00 micros   18.03 secs
+
+
+touch src/OpenFOAM/meshes/lduMesh/lduMesh.H
+./Allwmake -j

@@ -1,6 +1,6 @@
 #!/bin/sh
-set -euo pipefail
-IFS=$'\n\t'
+set -eu
+# If I set IFS=$'\n\t', this fails on debian for strange reasons
 
 rootdir="$1"
 workdir="$2"
