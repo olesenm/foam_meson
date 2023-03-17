@@ -407,6 +407,13 @@ def main():
     Path("disccache").mkdir(exist_ok=True)
 
     PROJECT_ROOT = Path(os.getcwd()) / "disccache" / "dev"
+    files_written = set()
+
+    def copy_file_to_output(inp, outp):
+        outp = PROJECT_ROOT / outp
+        assert outp not in files_written
+        files_written.add(outp)
+        shutil.copyfile(inp, outp)
 
     if not PROJECT_ROOT.exists():
         subprocess.check_call(
@@ -415,9 +422,13 @@ def main():
                 "clone",
                 "https://develop.openfoam.com/Development/openfoam.git",
                 PROJECT_ROOT,
-                "--depth=1",
+                # "--depth=1",
             ]
         )
+    subprocess.check_call(
+        ["git", "checkout", "988ec18ecca76aa0cef65acbab765374416d61b6"],
+        cwd=PROJECT_ROOT,
+    )
 
     if "## About OpenFOAM" not in (PROJECT_ROOT / "README.md").read_text():
         raise ValueError(
@@ -513,6 +524,7 @@ def main():
     add_project_arguments('-ftemplate-depth-100', language : ['c', 'cpp'])
     add_project_arguments('-m64', language : ['c', 'cpp'])
     add_project_link_arguments('-Wl,--add-needed', language : ['c', 'cpp'])
+    add_project_link_arguments('-Wl,--no-as-needed', language : ['c', 'cpp'])
     if cppc.get_id() == 'gcc'
         add_project_arguments('-DWM_COMPILER="Gcc"', language : 'cpp')
     elif cppc.get_id() == 'clang'
@@ -635,7 +647,7 @@ def main():
     ).parts
 
     totdesc.set_outpaths()
-    totdesc.writeToFileSystem()
+    totdesc.writeToFileSystem(files_written)
     Path(PROJECT_ROOT / "etc/meson_helpers").mkdir(exist_ok=True)
     helper_scripts = [
         "get_version.sh",
@@ -646,27 +658,24 @@ def main():
     if GROUP_FULL_DIRS:
         helper_scripts.append("rec_C.sh")
     for fn in helper_scripts:
-        outp = PROJECT_ROOT / "etc/meson_helpers" / fn
-        shutil.copyfile(f"meson/{fn}", outp)
-        os.chmod(outp, 0o755)
+        outp = Path("etc/meson_helpers") / fn
+        copy_file_to_output(f"meson/{fn}", outp)
+        os.chmod(PROJECT_ROOT / outp, 0o755)
 
-    shutil.copyfile("meson_options.txt", PROJECT_ROOT / "meson_options.txt")
-    shutil.copyfile(
-        "meson/comptest.C", PROJECT_ROOT / "src/OSspecific/POSIX/signals/comptest.C"
-    )
+    copy_file_to_output("meson_options.txt", "meson_options.txt")
+    copy_file_to_output("meson/comptest.C", "src/OSspecific/POSIX/signals/comptest.C")
 
     foam_hash = subprocess.check_output(
         ["git", "rev-parse", "--verify", "HEAD"],
         text=True,
         cwd=PROJECT_ROOT,
     ).strip()[0:10]
-    PATCH_OUTPUT = f"for_openfoam_commit_hash_{foam_hash}.diff"
-    assert (
-        os.system(
-            f'cd "{PROJECT_ROOT}" && git add -A && git diff HEAD > {os.getcwd() + "/" + PATCH_OUTPUT} && git reset HEAD'
-        )
-        == 0
-    )
+    PATCH_OUTPUT = os.getcwd() + "/" + f"for_openfoam_commit_hash_{foam_hash}.diff"
+
+    os.chdir(PROJECT_ROOT)
+    subprocess.check_call(["git", "reset", "HEAD"])
+    subprocess.check_call(["git", "add"] + [str(el) for el in files_written])
+    assert os.system(f"git diff HEAD > {PATCH_OUTPUT} && git reset HEAD") == 0
 
 
 if __name__ == "__main__":

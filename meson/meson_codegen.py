@@ -247,7 +247,7 @@ class BuildDesc:
                 return (key, ret)
         raise ValueError
 
-    def writer_recursion(self, generated_files, subgroup):
+    def writer_recursion(self, files_written, subgroup):
         depth = len(subgroup)
         mixed_deps = {}
         for (key, el) in self.elements.items():
@@ -312,7 +312,6 @@ class BuildDesc:
             exit(1)
 
         outpath = Path(self.root, *subgroup, "meson.build")
-        generated_files[outpath] = []
         total = ""
         state = "empty"
         for el in order:
@@ -328,12 +327,11 @@ class BuildDesc:
                 total += self.elements[el].template.export_relative(
                     Path(self.root, *subgroup)
                 )
-                generated_files[outpath].append(el)
 
         if outpath in self.custom_prefixes:
             total = self.custom_prefixes[outpath] + "\n\n" + total
 
-        self.writef(outpath, total)
+        self.writef(files_written, outpath, total)
 
         entries = set()
         for (key, el) in self.elements.items():
@@ -342,14 +340,14 @@ class BuildDesc:
                     entries.add(el.outpath[len(subgroup)])
 
         for dir in entries:
-            self.writer_recursion(generated_files, subgroup + [dir])
+            self.writer_recursion(files_written, subgroup + [dir])
 
-    def writeToFileSystem(self):
-        generated_files = {}
-        self.writer_recursion(generated_files, [])
-        return generated_files
+    def writeToFileSystem(self, files_written):
+        self.writer_recursion(files_written, [])
 
-    def writef(self, path, data):
+    def writef(self, files_written, path, data):
+        assert path not in files_written
+        files_written.add(path)
         if DRYRUN:
             return
         assert os.path.normpath(path).startswith(str(self.root) + "/")

@@ -5,14 +5,14 @@ Example How to build and run:
 ```shell
 git clone https://develop.openfoam.com/Development/openfoam.git
 cd openfoam
-git checkout 66908158ae
-wget https://codeberg.org/Volker_Weissmann/foam_meson_patches/raw/branch/trunk/for_openfoam_commit_hash_66908158ae.diff
-git apply ../for_openfoam_commit_hash_66908158ae.diff
+git checkout 988ec18ecc
+wget https://codeberg.org/Volker_Weissmann/foam_meson_patches/raw/branch/trunk/for_openfoam_commit_hash_988ec18ecc.diff
+git apply ../for_openfoam_commit_hash_988ec18ecc.diff
 meson setup ../build # Takes about 10 seconds
 cd ../build
 ninja # Takes hours
 meson devenv # Launches a subshell that has some environmental variables (among others: $PATH) set.
-cd ../openfoam/tutorials/lagrangian/simpleReactingParcelFoam/verticalChannel
+cd ../openfoam/tutorials/basic/laplacianFoam/flange
 ./Allrun
 
 ```
@@ -23,7 +23,7 @@ Note that the above is a debug build, i.e. equivalent to setting "WM_COMPILE_OPT
 meson setup ../build --buildtype=release
 ```
 
-I generated patches for the openfoam version with the commit hash 66908158ae, but I can generate patches for other versions too, just tell me what versions you need patches for.
+I generated patches for the openfoam version with the commit hash 988ec18ecc, but I can generate patches for other versions too, just tell me what versions you need patches for.
 
 # Open Issues
 
@@ -51,14 +51,20 @@ apt-get install -y git g++ zlib1g-dev libfftw3-dev mpi-default-dev libboost-syst
 I installed meson from source, since the packaged version is too old (we need at least 0.59.0).
 Support for other OS's should not be much work.
 
+If we decide to continue this project, I will setup proper testing on different OS's.
 
 # Advantages over wmake
 
-While wmake is only used by the openfoam project, meson is used by many different projects and has way more/better documentation that wmake. So if you know how to use meson, you know how to use it in the OpenFOAM project. The meson.build files are very easy to read.
+While wmake is only used by the openfoam project, meson is used by many different projects and has way more/better documentation that wmake. So if you know how to use meson, you know how to use it in the OpenFOAM project.
+
+The meson.build files are very easy to read.
 
 `meson setup` generates a compilation_commands.json file with can be [useful to IDE's](https://openfoamwiki.net/index.php/HowTo_Use_OpenFOAM_with_Visual_Studio_Code). No need for any slow hacks anymore.
 
-A clean compile is (afaik, measurements will follow) about as fast as a clean compile with Allwmake. Incremental builds however, are way faster: (Measurements will follow.) Among other things this is due to the fact that if you change a .so file, but you do not add or remove a symbol from it, meson will not relink the .so files and binaries that are linked to it.
+I have not confirmed the following with measurements yet, but I will do so if we decide to continue this project:
+A clean compile is about as fast as a clean compile with Allwmake. Incremental builds however, are *way* faster. If nothing has changed and you run `ninja` again, this takes about a second if it is hot. In contrast, running `./Allwmake` in the top-level directory will take over a minute if I remember correctly.
+
+Afaik, meson is better at knowing what needs to be rebuilt and what does not. This results in faster incremental builds and less wrong builds (I vaguely remembering having trouble that wmake did not recompile stuff that changed, leading to a confusing debugging session).
 
 If you just want to build a single binary, you ran run `ninja targetname` and it will build this binary and all of its dependencies. With wmake, you either have to run `./Allwmake` in the top directory, which is slow, or manually go into each directory that is a dependency of this binary and run `wmake` there.
 
@@ -74,6 +80,7 @@ If your machine is missing a dependency of OpenFOAM, meson will error during the
 
 With meson, you can do out-of-tree builds.
 
+Make interleaves the output of multiple cores, Ninja does not.
 
 
 
