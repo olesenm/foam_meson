@@ -626,8 +626,8 @@ def main():
         totdesc.explainatory_helper()
         return
 
-    # There is a nameclash problem: Without this hacky mitigation
-    # here, the build will fail:
+    # There is a nameclash problem. Without this hacky mitigation
+    # here, the build will fail.
     # applications/utilities/mesh/generation/extrude2DMesh/extrude2DMesh/meson.build
     # writes a library to
     # builddir/applications/utilities/mesh/generation/extrude2DMesh/extrude2DMesh/libextrude2DMesh.so
@@ -635,9 +635,9 @@ def main():
     # builddir/applications/utilities/mesh/generation/extrude2DMesh/extrude2DMesh/
     # will be created. Later,
     # applications/utilities/mesh/generation/extrude2DMesh/meson.build
-    # will try write an executable to
+    # will try to write an executable to
     # builddir/applications/utilities/mesh/generation/extrude2DMesh/extrude2DMesh
-    # but will fail, because you cannot write to a filepath if this
+    # but it will fail, because you cannot write to a filepath if this
     # filepath is an existing directory.
     # This could be considered a bug in meson, but meson (probably)
     # will not fix this:

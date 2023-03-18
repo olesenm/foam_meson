@@ -37,6 +37,7 @@ The following dependencies are currently never used:
  - ccmio
  - kahip
  - scotch
+
 Again, fixing this is possible, but I want to fix this after we know what direction the project is gonna take.
 
 ## Build Subfolders seperately
@@ -44,11 +45,34 @@ Again, fixing this is possible, but I want to fix this after we know what direct
 One good thing about wmake is that you can copy e.g. the `applications/solvers/lagrangian/reactingParcelFoam/simpleReactingParcelFoam` folder to some other path outside of the openfoam folder, modify the contents a bit and run `wmake` inside that folder to build it. I think we will have to talk about that more than about any other feature. Currently, my build system offers no similar feature, but I have ideas on how to implement something like that.
 
 ## OS Support
-I only tested it on my ArchLinux machine, and an Debian machine, with the following additional packages installed:
+I only tested it on my ArchLinux machine, and on a debian docker container, with the following additional packages installed:
 ```sh
 apt-get install -y git g++ zlib1g-dev libfftw3-dev mpi-default-dev libboost-system-dev flex
 ```
 I installed meson from source, since the packaged version is too old (we need at least 0.59.0).
+This was the script I ran on Debian:
+```
+set -euo pipefail
+IFS=$'\n\t'
+
+cd /root
+apt update
+apt install -y git g++ zlib1g-dev libfftw3-dev mpi-default-dev libboost-system-dev flex python3 ninja-build wget
+wget https://codeberg.org/Volker_Weissmann/foam_meson_patches/raw/branch/trunk/for_openfoam_commit_hash_988ec18ecc.diff
+git clone https://github.com/mesonbuild/meson || true
+cd meson
+git checkout 0.59.0
+cd ..
+git clone https://develop.openfoam.com/Development/openfoam.git
+cd openfoam
+git checkout 988ec18ecc
+git apply ../for_openfoam_commit_hash_988ec18ecc.diff
+../meson/meson.py setup ../build
+cd ../build
+ninja
+../meson/meson.py devenv bash -c "cd ../openfoam/tutorials/basic/laplacianFoam/flange && ./Allrun"
+```
+
 Support for other OS's should not be much work.
 
 If we decide to continue this project, I will setup proper testing on different OS's.
@@ -62,9 +86,15 @@ The meson.build files are very easy to read.
 `meson setup` generates a compilation_commands.json file with can be [useful to IDE's](https://openfoamwiki.net/index.php/HowTo_Use_OpenFOAM_with_Visual_Studio_Code). No need for any slow hacks anymore.
 
 I have not confirmed the following with measurements yet, but I will do so if we decide to continue this project:
-A clean compile is about as fast as a clean compile with Allwmake. Incremental builds however, are *way* faster. If nothing has changed and you run `ninja` again, this takes about a second if it is hot. In contrast, running `./Allwmake` in the top-level directory will take over a minute if I remember correctly.
+A clean compile is about as fast as a clean compile with Allwmake. Incremental builds however, are *way* faster. If nothing has changed and you run `ninja` again, this takes 2-5 seconds (and we could further reduce that time). In contrast, running `./Allwmake` in the top-level directory will take over a minute on the same machine.
 
 Afaik, meson is better at knowing what needs to be rebuilt and what does not. This results in faster incremental builds and less wrong builds (I vaguely remembering having trouble that wmake did not recompile stuff that changed, leading to a confusing debugging session).
+
+Afaik, if you build openfoam, then do `git pull` and run `./Allwmake` again, it is possible that this will fail and you have to manually run `wclean`. This happened to me, when I upgraded from `0031cb1efac0d550334108346f26dde5e707b6fd` to `988ec18ecca76aa0cef65acbab765374416d61b6`:
+```
+make: *** No rule to make target 'fields/faPatchFields/constraint/processor/processorFaPatchScalarField.H', needed by '/home/volker/Documents/foam/openfoam/build/linux64GccDPInt32Opt/src/finiteArea/fields/faPatchFields/constraint/processor/processorFaPatchFields.C.dep'.  Stop.
+```
+Meson on the other hand, is afaik quite robust in such cases. The only thing that ever forced manual intervention or a clean rebuild was if I made changes to the OS (e.g. removing a package that is an optional dependency of OpenFOAM, or when I built in on one machine and copied the build folder to a different machine).
 
 If you just want to build a single binary, you ran run `ninja targetname` and it will build this binary and all of its dependencies. With wmake, you either have to run `./Allwmake` in the top directory, which is slow, or manually go into each directory that is a dependency of this binary and run `wmake` there.
 
