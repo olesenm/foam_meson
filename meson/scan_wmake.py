@@ -44,6 +44,7 @@ def disccache(original_func):
             return original_func(*args, **kwargs)
         fp = Path("disccache") / (original_func.__name__ + ".pickle")
         if fp.exists():
+            print(f"Loading cache from {fp}")
             return pickle.load(open(fp, "rb"))
         else:
             ret = original_func(*args, **kwargs)
