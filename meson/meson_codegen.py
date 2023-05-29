@@ -133,7 +133,13 @@ class BuildDesc:
         for target in self.elements:
             self.elements[target].outpath = self.elements[target].ideal_path
         for change in changes:
-            self.elements[change["target"]].outpath = change["chosen_path"]
+            target = self.elements[change["target"]]
+            target.outpath = change["chosen_path"]
+
+            ideal = "/".join(target.ideal_path) + "/meson.build"
+            op = "/".join(target.outpath) + "/meson.build"
+            print(f"We would like to put the target '{target.provides}' into '{ideal}', but due to some graph theory stuff that is impossible/hard so we put it into '{op}' instead.")
+        print(f"{len(changes)} target(s) will not be in their preferred directory.")
 
     def set_custom_prefix(self, path, custom):
         assert path.parts[-1] == "meson.build"
