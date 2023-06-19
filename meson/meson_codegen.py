@@ -44,7 +44,7 @@ def build_reachable_dict(graph):
     return ret
 
 
-# This topological_sort algorithm is deterministic and is biased to group subdirs together, to group targets together and to make the result somewhat alphasorted.
+# This topological_sort algorithm is deterministic and is biased to group subdirs together, to group targets together, to put subdirs before targets, and to make the result somewhat alphasorted.
 def topological_sort(graph):
     iddeps = build_reachable_dict(graph)
 

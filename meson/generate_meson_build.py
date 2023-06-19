@@ -11,12 +11,13 @@ from meson_codegen import *
 from scan_wmake import *
 import sys
 import textwrap
-import yaml
 import pdb
-import cProfile
+
+# import cProfile
 import subprocess
 import shutil
 import stat
+import heuristics
 
 
 def from_this_directory():
@@ -437,11 +438,8 @@ def main():
             "It looks like PROJECT_ROOT does not point to an OpenFOAM repository"
         )
 
-    with open("meson/data.yaml", "r") as stream:
-        yamldata = yaml.safe_load(stream)
-    broken_dirs = [Path(p) for p in yamldata["broken_dirs"]]
-
-    wmake_dirs = find_all_wmake_dirs(PROJECT_ROOT, yamldata)
+    broken_dirs = [Path(p) for p in heuristics.broken_dirs()]
+    wmake_dirs = find_all_wmake_dirs(PROJECT_ROOT)
     totdesc = BuildDesc(PROJECT_ROOT)
     preprocessed = all_preprocess_files_file(PROJECT_ROOT, wmake_dirs)
     parsed_options = all_parse_options_file(PROJECT_ROOT, wmake_dirs)

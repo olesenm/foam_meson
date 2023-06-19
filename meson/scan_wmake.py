@@ -10,6 +10,7 @@ import typing as T
 import os
 from meson_codegen import *
 from enum import Enum
+import heuristics
 
 optional_deps = {
     "mpfr": "lib",
@@ -57,8 +58,8 @@ def disccache(original_func):
 
 # Find all directories that have a subdirectory called Make and are not marked as broken or ignored.
 @disccache
-def find_all_wmake_dirs(PROJECT_ROOT, yamldata):
-    disable_scanning = [Path(p) for p in yamldata["disable_scanning"]]
+def find_all_wmake_dirs(PROJECT_ROOT):
+    scanning_disabled = [Path(p) for p in heuristics.scanning_disabled()]
     ret = []
     for el in PROJECT_ROOT.rglob("Make"):
         if not path.isdir(el):
@@ -67,7 +68,7 @@ def find_all_wmake_dirs(PROJECT_ROOT, yamldata):
         el = el.parent
         if "codeTemplates" in el.parts:
             continue
-        if el in disable_scanning:
+        if el in scanning_disabled:
             continue
         ret.append(el)
     return ret
