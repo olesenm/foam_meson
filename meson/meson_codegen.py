@@ -9,11 +9,9 @@ import re
 import copy
 import subprocess
 import json
-import graphlib
 from collections import defaultdict
 from pathlib import Path
 import typing as T
-from dataclasses import dataclass
 
 if DRYRUN:
     print("##################### WARNING: DRYRUNNING ################################")
@@ -29,6 +27,42 @@ def remove_suffix(line, search):
     assert line.endswith(search), line + " -----  " + search
     line = line[: -len(search)]
     return line.rstrip()
+
+
+# `a in build_reachable_dict(graph)[b]` is true exactly if there is a path form `a` to `b`.
+def build_reachable_dict(graph):
+    ret = {}
+    for k1, v1 in graph.items():
+        ret[k1] = set()
+        for x in v1:
+            ret[k1].add(x)
+            if x in ret:
+                ret[k1].update(ret[x])
+        for k2, v2 in ret.items():
+            if k1 in v2:
+                v2.update(ret[k1])
+    return ret
+
+
+# This topological_sort algorithm is deterministic and is biased to group subdirs together, to group targets together and to make the result somewhat alphasorted.
+def topological_sort(graph):
+    iddeps = build_reachable_dict(graph)
+
+    def iddep(a, b):
+        return b in iddeps[a]
+
+    not_placed_yet = set(graph.keys())
+    ret = []
+    while len(not_placed_yet) != 0:
+        for type in [Path, str]:
+            next_batch = filter(lambda x: isinstance(x, type), not_placed_yet)
+            next_batch = list(next_batch)
+            next_batch = filter(lambda x: iddeps[x].issubset(ret), next_batch)
+            next_batch = list(sorted(next_batch))
+            ret += next_batch
+            not_placed_yet -= set(next_batch)
+
+    return ret
 
 
 # Template is essentially a wrapper around a string (Template.temp is a string), but with '<PATH>/some/path</PATH>' instead of '/some/path', which allows us to do things like: Replace all absolute paths with equivalent relative paths
@@ -73,19 +107,25 @@ class Template:
 
 
 # A Node represents one recipe that we need to put in some meson.build file.
-@dataclass
 class Node:
     # The opposite of ddeps
     provides: str
     # template.temp is the the recipe as a string, but with '<PATH>/some/path</PATH>' instead of '/some/path'
     template: Template
     # Direkt Dependencies of this recipe
-    ddeps: list[str]
+    ddeps: T.List[str]
     # Ideal path of the meson.build file to put this recipe in. E.g.
     # ('applications', 'solvers', 'DNS', 'dnsFoam')
-    ideal_path: tuple[str]
+    ideal_path: T.Tuple[str]
     # Will be printed in some warnings/error messages
     debuginfo: str
+
+    def __init__(self, provides, template, ddeps, ideal_path, debuginfo):
+        self.provides = provides
+        self.template = template
+        self.ddeps = ddeps
+        self.ideal_path = ideal_path
+        self.debuginfo = debuginfo
 
 
 class BuildDesc:
@@ -101,11 +141,11 @@ class BuildDesc:
     def explainatory_helper(self):
         os.system("find '" + str(self.root) + "' -name meson.build -delete ")
 
-        for (path, prefix) in self.custom_prefixes.items():
+        for path, prefix in self.custom_prefixes.items():
             with open(path, "a") as ofile:
                 ofile.write(prefix)
 
-        for (key, el) in self.elements.items():
+        for key, el in self.elements.items():
             recipe = el.template.temp.replace("<PATH>", "").replace("</PATH>", "")
             outpath = Path(self.root, *el.outpath, "meson.build")
             with open(outpath, "a") as ofile:
@@ -126,7 +166,7 @@ class BuildDesc:
         res = subprocess.check_output(
             "cd meson/grouped_topo_sort/ && cargo run --release",
             shell=True,
-            text=True,
+            universal_newlines=True,
             input=json.dumps(ar),
         )
         changes = json.loads(res)
@@ -138,7 +178,9 @@ class BuildDesc:
 
             ideal = "/".join(target.ideal_path) + "/meson.build"
             op = "/".join(target.outpath) + "/meson.build"
-            print(f"We would like to put the target '{target.provides}' into '{ideal}', but due to some graph theory stuff that is impossible/hard so we put it into '{op}' instead.")
+            print(
+                f"We would like to put the target '{target.provides}' into '{ideal}', but due to some graph theory stuff that is impossible/hard so we put it into '{op}' instead."
+            )
         print(f"{len(changes)} target(s) will not be in their preferred directory.")
 
     def set_custom_prefix(self, path, custom):
@@ -211,7 +253,7 @@ class BuildDesc:
     # Finds the reason why a directory depends directly on a file
     def get_dep_reason_dir_file(self, subgroup, dir_source, file_target):
         depth = len(subgroup)
-        for (key, el) in self.elements.items():
+        for key, el in self.elements.items():
             if not self.starts_with(subgroup, el.outpath):
                 continue
             if len(el.outpath) == depth:
@@ -240,7 +282,7 @@ class BuildDesc:
     # Finds the reason why a directory depends directly on a directory
     def get_dep_reason_dir_dir(self, subgroup, dir_source, dir_target):
         depth = len(subgroup)
-        for (key, el) in self.elements.items():
+        for key, el in self.elements.items():
             if not self.starts_with(subgroup, el.outpath):
                 continue
             if len(el.outpath) == depth:
@@ -253,10 +295,37 @@ class BuildDesc:
                 return (key, ret)
         raise ValueError
 
+    def print_cycle(self, subgroup, cycle):
+        for i in range(len(cycle) - 1):
+            print(" " * len("depends on: "), end="")
+            if isinstance(cycle[i], Path) and isinstance(cycle[i + 1], str):
+                print(
+                    self.get_dep_reason_dir_file(subgroup, cycle[i], cycle[i + 1]),
+                    end=" in ",
+                )
+            elif isinstance(cycle[i], Path) and isinstance(cycle[i + 1], Path):
+                print(
+                    self.get_dep_reason_dir_dir(subgroup, cycle[i], cycle[i + 1])[0],
+                    end=" in ",
+                )
+            print(cycle[i])
+            print("depends on: ", end="")
+            if isinstance(cycle[i], str) and isinstance(cycle[i + 1], Path):
+                print(
+                    self.get_dep_reason_file_dir(subgroup, cycle[i], cycle[i + 1]),
+                    end=" in ",
+                )
+            elif isinstance(cycle[i], Path) and isinstance(cycle[i + 1], Path):
+                print(
+                    self.get_dep_reason_dir_dir(subgroup, cycle[i], cycle[i + 1])[1],
+                    end=" in ",
+                )
+            print(cycle[i + 1])
+
     def writer_recursion(self, files_written, subgroup):
         depth = len(subgroup)
         mixed_deps = {}
-        for (key, el) in self.elements.items():
+        for key, el in self.elements.items():
             if not self.starts_with(subgroup, el.outpath):
                 continue
             if len(el.outpath) == depth:
@@ -266,56 +335,8 @@ class BuildDesc:
                 if pkey not in mixed_deps:
                     mixed_deps[pkey] = set()
                 mixed_deps[pkey].update(self.generalised_deps(subgroup, el))
-        # Sorting is not necessary, but it makes the output deterministic, which allows for easier delta testing
-        mixed_deps_sorted = dict(
-            sorted(mixed_deps.items(), key=lambda item: str(item[0]))
-        )
-        mixed_deps_sorted = {
-            k: sorted(v, key=lambda item: str(item))
-            for k, v in mixed_deps_sorted.items()
-        }
-        ts = graphlib.TopologicalSorter(mixed_deps_sorted)
-        try:
-            order = tuple(ts.static_order())
-        except graphlib.CycleError as ex:
-            # If our rust binary grouped_topo_sort worked correctly, this exception will never occur.
-            print("UNABLE TO CODEGEN BECAUSE OF CYCLE IN: ", subgroup)
-            cycle = ex.args[1]
-            cycle.reverse()
-            firstlineindent = 0
-            indent = 0
-            reason = None
 
-            for i in range(len(cycle) - 1):
-                print(" " * len("depends on: "), end="")
-                if isinstance(cycle[i], Path) and isinstance(cycle[i + 1], str):
-                    print(
-                        self.get_dep_reason_dir_file(subgroup, cycle[i], cycle[i + 1]),
-                        end=" in ",
-                    )
-                elif isinstance(cycle[i], Path) and isinstance(cycle[i + 1], Path):
-                    print(
-                        self.get_dep_reason_dir_dir(subgroup, cycle[i], cycle[i + 1])[
-                            0
-                        ],
-                        end=" in ",
-                    )
-                print(cycle[i])
-                print("depends on: ", end="")
-                if isinstance(cycle[i], str) and isinstance(cycle[i + 1], Path):
-                    print(
-                        self.get_dep_reason_file_dir(subgroup, cycle[i], cycle[i + 1]),
-                        end=" in ",
-                    )
-                elif isinstance(cycle[i], Path) and isinstance(cycle[i + 1], Path):
-                    print(
-                        self.get_dep_reason_dir_dir(subgroup, cycle[i], cycle[i + 1])[
-                            1
-                        ],
-                        end=" in ",
-                    )
-                print(cycle[i + 1])
-            exit(1)
+        order = topological_sort(mixed_deps)
 
         outpath = Path(self.root, *subgroup, "meson.build")
         total = ""
@@ -340,7 +361,7 @@ class BuildDesc:
         self.writef(files_written, outpath, total)
 
         entries = set()
-        for (key, el) in self.elements.items():
+        for key, el in self.elements.items():
             if self.starts_with(subgroup, el.outpath):
                 if len(subgroup) != len(el.outpath):
                     entries.add(el.outpath[len(subgroup)])

@@ -25,6 +25,7 @@ def from_this_directory():
 
 assert "WM_PROJECT_DIR" not in os.environ, "Don't source etc/bashrc"
 
+
 # see https://stackoverflow.com/questions/12217537/can-i-force-debugging-python-on-assertionerror
 def info(type, value, tb):
     if hasattr(sys, "ps1") or not sys.stderr.isatty():
@@ -207,29 +208,29 @@ def wmake_to_meson(PROJECT_ROOT, wmake_dir, preprocessed, parsed_options):
     files_srcs = []
     other_srcs = []
     for el in inter.srcs:
-        match el:
-            case SimpleSourcefile(x):
-                files_srcs.append(x)
-            case FoamConfigSourcefile():
-                other_srcs.append("foamConfig_cpp")
-            case FlexgenSourcefile(x):
-                other_srcs.append(f"flexgen.process('<PATH>{x}</PATH>')")
-            case LyyM4Sourcefile(x):
-                name = remove_suffix(x.parts[-1], ".lyy-m4")
-                varname = x.parts[-1]
-                for c in "$", ".", "(", ")", "/", "_", "-":
-                    varname = varname.replace(c, "_")
-                varname + "_cpp"
-                template += f"""
-                {varname} = custom_target(
-                    '{varname}',
-                    input: '<PATH>{x}</PATH>',
-                    output : '{name}.cc',
-                    command: [m4lemon, meson.source_root(), '<PATH>{PROJECT_ROOT / wmake_dir}</PATH>', lemonbin, '@INPUT@', '@OUTPUT@' ])
-                """
-                other_srcs.append(varname)
-            case _:
-                raise NotImplemented
+        if isinstance(el, SimpleSourcefile):
+            files_srcs.append(el.path)
+        elif isinstance(el, FoamConfigSourcefile):
+            other_srcs.append("foamConfig_cpp")
+        elif isinstance(el, FlexgenSourcefile):
+            other_srcs.append(f"flexgen.process('<PATH>{el.path}</PATH>')")
+        elif isinstance(el, LyyM4Sourcefile):
+            x = el.path
+            name = remove_suffix(x.parts[-1], ".lyy-m4")
+            varname = x.parts[-1]
+            for c in "$", ".", "(", ")", "/", "_", "-":
+                varname = varname.replace(c, "_")
+            varname + "_cpp"
+            template += f"""
+            {varname} = custom_target(
+                '{varname}',
+                input: '<PATH>{x}</PATH>',
+                output : '{name}.cc',
+                command: [m4lemon, meson.source_root(), '<PATH>{PROJECT_ROOT / wmake_dir}</PATH>', lemonbin, '@INPUT@', '@OUTPUT@' ])
+            """
+            other_srcs.append(varname)
+        else:
+            raise NotImplemented
 
     rec_dirs_srcs = []
     if GROUP_FULL_DIRS:
@@ -240,23 +241,24 @@ def wmake_to_meson(PROJECT_ROOT, wmake_dir, preprocessed, parsed_options):
     )
 
     for include in includes:
-        match include:
-            case NonRecursiveInclude(path):
-                if path.exists():
-                    cpp_args.append(
-                        f"'-I' + meson.source_root() / '{path.relative_to(PROJECT_ROOT)}'"
-                    )
-                else:
-                    print(f"Warning: {path} does not exist")
-            case RecursiveInclude(path):
-                if path.exists():
-                    cpp_args.append(
-                        f"'-I' + recursive_include_dirs / '{path.relative_to(PROJECT_ROOT)}'"
-                    )
-                else:
-                    print(f"Warning: {path} does not exist")
-            case _:
-                raise NotImplemented
+        if isinstance(include, NonRecursiveInclude):
+            path = include.path
+            if path.exists():
+                cpp_args.append(
+                    f"'-I' + meson.source_root() / '{path.relative_to(PROJECT_ROOT)}'"
+                )
+            else:
+                print(f"Warning: {path} does not exist")
+        elif isinstance(include, RecursiveInclude):
+            path = include.path
+            if path.exists():
+                cpp_args.append(
+                    f"'-I' + recursive_include_dirs / '{path.relative_to(PROJECT_ROOT)}'"
+                )
+            else:
+                print(f"Warning: {path} does not exist")
+        else:
+            raise NotImplemented
 
     template += f"""
     srcfiles = {fix_ws_inline(to_meson_array(srcs_quoted), 4, True)}
@@ -667,7 +669,7 @@ def main():
 
     foam_hash = subprocess.check_output(
         ["git", "rev-parse", "--verify", "HEAD"],
-        text=True,
+        universal_newlines=True,
         cwd=PROJECT_ROOT,
     ).strip()[0:10]
     PATCH_OUTPUT = os.getcwd() + "/" + f"for_openfoam_commit_hash_{foam_hash}.diff"

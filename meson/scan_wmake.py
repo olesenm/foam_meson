@@ -6,7 +6,6 @@ import subprocess
 import pdb
 from pathlib import Path
 import pickle
-from dataclasses import dataclass
 import typing as T
 import os
 from meson_codegen import *
@@ -30,12 +29,14 @@ optional_deps = {
     "ptscotcherrexit": "broken",
 }
 
+
 # Turns a string into a valid identifier that can be used as a variable name in meson.build
 def mangle_name(name):
     return name.replace("-", "_").replace("/", "_slash_")
 
 
 ACTIVATE_CACHE = True  # todo: disable before release
+
 
 # Kind of broken since it does not hash the function arguments
 def disccache(original_func):
@@ -145,14 +146,18 @@ class Include:
     pass
 
 
-@dataclass
 class RecursiveInclude(Include):
     path: Path
 
+    def __init__(self, path):
+        self.path = path
 
-@dataclass
+
 class NonRecursiveInclude(Include):
     path: Path
+
+    def __init__(self, path):
+        self.path = path
 
 
 hardcoded_precision = """
@@ -213,31 +218,40 @@ class GeneralizedSourcefile:
     pass
 
 
-@dataclass
 class SimpleSourcefile(GeneralizedSourcefile):
     path: Path
 
+    def __init__(self, path):
+        self.path = path
 
-@dataclass
+
 class FlexgenSourcefile(GeneralizedSourcefile):
     path: Path
 
+    def __init__(self, path):
+        self.path = path
 
-@dataclass
+
 class LyyM4Sourcefile(GeneralizedSourcefile):
     path: Path
 
+    def __init__(self, path):
+        self.path = path
 
-@dataclass
+
 class FoamConfigSourcefile(GeneralizedSourcefile):
     pass
 
 
-@dataclass
 class Intermediate:
     srcs: T.List[GeneralizedSourcefile]
     varname: str
     typ: TargetType
+
+    def __init__(self, srcs, varname, typ):
+        self.srcs = srcs
+        self.varname = varname
+        self.typ = typ
 
 
 def substitute(vardict, cur):
