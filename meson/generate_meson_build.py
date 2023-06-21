@@ -440,7 +440,7 @@ def main():
         cwd=PROJECT_ROOT,
     )
 
-    if "## About OpenFOAM" not in (PROJECT_ROOT / "README.md").read_text():
+    if not (PROJECT_ROOT / "bin" / "foamEtcFile").is_file():
         raise ValueError(
             "It looks like PROJECT_ROOT does not point to an OpenFOAM repository"
         )
