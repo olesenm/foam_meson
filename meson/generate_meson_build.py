@@ -450,7 +450,7 @@ def main():
     broken_dirs = [Path(p) for p in heuristics.broken_dirs()]
     wmake_dirs = find_all_wmake_dirs(PROJECT_ROOT)
     totdesc = BuildDesc(PROJECT_ROOT)
-    preprocessed = all_preprocess_files_file(PROJECT_ROOT, wmake_dirs)
+    preprocessed = all_preprocess_files_file(PROJECT_ROOT, wmake_dirs, api_version)
     parsed_options = all_parse_options_file(PROJECT_ROOT, wmake_dirs)
     all_configure_time_recursively_scanned_dirs = set()
 

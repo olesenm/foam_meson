@@ -173,7 +173,7 @@ primitives/Tensor/floatTensor/floatTensor.C
 """
 
 
-def preprocess_files_file(PROJECT_ROOT, wmake_dir):
+def preprocess_files_file(PROJECT_ROOT, wmake_dir, api_version):
     specials = []
     src = (PROJECT_ROOT / wmake_dir / "Make" / "files").read_text()
     if hardcoded_precision in src:
@@ -188,7 +188,7 @@ def preprocess_files_file(PROJECT_ROOT, wmake_dir):
             [
                 "cpp",
                 # "-traditional-cpp",
-                "-DOPENFOAM=2006",
+                f"-DOPENFOAM={api_version}",
                 tmp.name,
             ],
         ).decode()
@@ -203,9 +203,9 @@ def preprocess_files_file(PROJECT_ROOT, wmake_dir):
 
 
 @disccache
-def all_preprocess_files_file(PROJCET_ROOT, wmake_dirs):
+def all_preprocess_files_file(PROJCET_ROOT, wmake_dirs, api_version):
     return {
-        wmake_dir: preprocess_files_file(PROJCET_ROOT, wmake_dir)
+        wmake_dir: preprocess_files_file(PROJCET_ROOT, wmake_dir, api_version)
         for wmake_dir in wmake_dirs
     }
 
