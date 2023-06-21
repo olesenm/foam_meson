@@ -404,6 +404,13 @@ class MyEncoder(JSONEncoder):
         return o.__dict__
 
 
+def get_api_version(PROJECT_ROOT):
+    for line in (PROJECT_ROOT / "META-INFO" / "api-info").read_text().split():
+        if line.startswith("api="):
+            return remove_prefix(line, "api=").strip()
+    raise RuntimeError("Unable to get openfoam version")
+
+
 def main():
     from_this_directory()
     os.chdir("..")
@@ -437,6 +444,8 @@ def main():
         raise ValueError(
             "It looks like PROJECT_ROOT does not point to an OpenFOAM repository"
         )
+
+    api_version = get_api_version(PROJECT_ROOT)
 
     broken_dirs = [Path(p) for p in heuristics.broken_dirs()]
     wmake_dirs = find_all_wmake_dirs(PROJECT_ROOT)
@@ -519,7 +528,7 @@ def main():
     add_project_arguments('-DWM_ARCH=' + get_option('WM_ARCH'), language : ['c', 'cpp'])
     add_project_arguments('-DWM_' + get_option('WM_PRECISION_OPTION'), language : ['c', 'cpp'])
     add_project_arguments('-DNoRepository', language : ['c', 'cpp'])
-    add_project_arguments('-DOPENFOAM=2006', language : ['c', 'cpp'])
+    add_project_arguments('-DOPENFOAM={api_version}', language : ['c', 'cpp'])
     add_project_arguments('-DOMPI_SKIP_MPICXX', language : ['c', 'cpp'])
     add_project_arguments('-ftemplate-depth-100', language : ['c', 'cpp'])
     add_project_arguments('-m64', language : ['c', 'cpp'])
