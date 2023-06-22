@@ -12,6 +12,7 @@ import json
 from collections import defaultdict
 from pathlib import Path
 import typing as T
+import math
 
 if DRYRUN:
     print("##################### WARNING: DRYRUNNING ################################")
@@ -44,25 +45,23 @@ def build_reachable_dict(graph):
     return ret
 
 
-# This topological_sort algorithm is deterministic and is biased to group subdirs together, to group targets together, to put subdirs before targets, and to make the result somewhat alphasorted.
-def topological_sort(graph):
-    iddeps = build_reachable_dict(graph)
+# https://en.wikipedia.org/wiki/Floyd%E2%80%93Warshall_algorithm
+def find_shortest_cycle(graph):
+    dist = {k2: {k1: math.inf for k1 in graph} for k2 in graph}
+    for u in graph:
+        # dist[u][u] = 0
+        for v in graph[u]:
+            dist[u][v] = 1
+    for k in graph:
+        for i in graph:
+            for j in graph:
+                if dist[i][j] > dist[i][k] + dist[k][j]:
+                    dist[i][j] = dist[i][k] + dist[k][j]
 
-    def iddep(a, b):
-        return b in iddeps[a]
-
-    not_placed_yet = set(graph.keys())
-    ret = []
-    while len(not_placed_yet) != 0:
-        for type in [Path, str]:
-            next_batch = filter(lambda x: isinstance(x, type), not_placed_yet)
-            next_batch = list(next_batch)
-            next_batch = filter(lambda x: iddeps[x].issubset(ret), next_batch)
-            next_batch = list(sorted(next_batch))
-            ret += next_batch
-            not_placed_yet -= set(next_batch)
-
-    return ret
+    cycle = [min([(dist[k][k], k) for k in graph])[1]]
+    while cycle[0] != cycle[-1] or len(cycle) == 1:
+        cycle.append(min([(dist[k][cycle[0]], k) for k in graph[cycle[-1]]])[1])
+    return cycle
 
 
 # Template is essentially a wrapper around a string (Template.temp is a string), but with '<PATH>/some/path</PATH>' instead of '/some/path', which allows us to do things like: Replace all absolute paths with equivalent relative paths
@@ -295,32 +294,83 @@ class BuildDesc:
                 return (key, ret)
         raise ValueError
 
-    def print_cycle(self, subgroup, cycle):
+    # Returns all path from src to target.
+    def find_all_paths(self, src, target):
+        queue = []
+        queue.append((src, []))
+        paths = []
+        while len(queue) != 0:
+            cur, path = queue.pop()
+            if cur == target:
+                paths.append(path)
+            next = [
+                (edge[1], path + [edge[1]]) for edge in self.edges if edge[0] == cur
+            ]
+            queue += next
+        return paths
+
+    def error_out_due_to_cycle(self, graph, subgroup):
+        print(
+            "You encountered a bug in this script. Sorry. Please report it here: https://codeberg.org/Volker_Weissmann/foam_meson/issues"
+        )
+        exit(1)
+        cycle = find_shortest_cycle(graph)
+        print("-" * 80)
+        print(
+            "We are unable to generate meson.build files due to some complicated graph theory stuff:"
+        )
+        topdir = os.path.join(self.root, *subgroup)
+        print(
+            f"In '{topdir}/meson.build' we want to put (among other things) the following {len(cycle)-1} lines:",
+        )
         for i in range(len(cycle) - 1):
-            print(" " * len("depends on: "), end="")
-            if isinstance(cycle[i], Path) and isinstance(cycle[i + 1], str):
-                print(
-                    self.get_dep_reason_dir_file(subgroup, cycle[i], cycle[i + 1]),
-                    end=" in ",
+            print(f"    subdir('{cycle[i]}')")
+        print(
+            f"Due to some limitations of meson (https://github.com/mesonbuild/meson/issues/8178) we have to put these {len(cycle)-1} subdir calls in the correct order: The topological order of the dependency graph. But the dependency graph of these directories form a cycle, so no topological order exists."
+        )
+        for i in range(len(cycle) - 1):
+            targetpair = self.get_dep_reason_dir_dir(subgroup, cycle[i], cycle[i + 1])
+            dirpair = [
+                os.path.join(
+                    self.root, *(self.elements[target].ideal_path), "Make", "files"
                 )
-            elif isinstance(cycle[i], Path) and isinstance(cycle[i + 1], Path):
-                print(
-                    self.get_dep_reason_dir_dir(subgroup, cycle[i], cycle[i + 1])[0],
-                    end=" in ",
-                )
-            print(cycle[i])
-            print("depends on: ", end="")
-            if isinstance(cycle[i], str) and isinstance(cycle[i + 1], Path):
-                print(
-                    self.get_dep_reason_file_dir(subgroup, cycle[i], cycle[i + 1]),
-                    end=" in ",
-                )
-            elif isinstance(cycle[i], Path) and isinstance(cycle[i + 1], Path):
-                print(
-                    self.get_dep_reason_dir_dir(subgroup, cycle[i], cycle[i + 1])[1],
-                    end=" in ",
-                )
-            print(cycle[i + 1])
+                for target in targetpair
+            ]
+            print("\n")
+            for i in range(2):
+                print(f"{dirpair[i]} contains the target '{targetpair[i]}'.")
+            print(
+                f"'{targetpair[0]}' depends on '{targetpair[1]}', so 'subdir('{cycle[0]}')' must be after 'subdir('{cycle[1]}')'."
+            )
+        print("\n")
+        print(
+            f"There is no way to fulfill all of these {len(cycle)-1} requirements simultaniously. Any of the possible {math.factorial(len(cycle)-1)} orders for the {len(cycle)-1} subdir calls is going to conflict with at least one of these requirements."
+        )
+        exit(1)
+
+    # This topological_sort algorithm is deterministic and is biased to group subdirs together, to group targets together, to put subdirs before targets, and to make the result somewhat alphasorted.
+    def topological_sort(self, graph, subgroup):
+        iddeps = build_reachable_dict(graph)
+
+        def iddep(a, b):
+            return b in iddeps[a]
+
+        not_placed_yet = set(graph.keys())
+        ret = []
+        while len(not_placed_yet) != 0:
+            sumlen = 0
+            for type in [Path, str]:
+                next_batch = filter(lambda x: isinstance(x, type), not_placed_yet)
+                next_batch = list(next_batch)
+                next_batch = filter(lambda x: iddeps[x].issubset(ret), next_batch)
+                next_batch = list(sorted(next_batch))
+                ret += next_batch
+                not_placed_yet -= set(next_batch)
+                sumlen += len(next_batch)
+            if sumlen == 0:
+                self.error_out_due_to_cycle(graph, subgroup)
+
+        return ret
 
     def writer_recursion(self, files_written, subgroup):
         depth = len(subgroup)
@@ -336,7 +386,7 @@ class BuildDesc:
                     mixed_deps[pkey] = set()
                 mixed_deps[pkey].update(self.generalised_deps(subgroup, el))
 
-        order = topological_sort(mixed_deps)
+        order = self.topological_sort(mixed_deps, subgroup)
 
         outpath = Path(self.root, *subgroup, "meson.build")
         total = ""
