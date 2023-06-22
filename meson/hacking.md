@@ -62,6 +62,9 @@ executable('exename', srcfiles, ...)
 ```
 
 # Todo
+- the folder foam_meson/meson is badly named, it should be e.g. foam_meson/src instead
+- change generate_meson_build.py call semantics (i.e. don't do a git clone)
+- replace rust with C99
 - Compiling other OpenFoam versions
 - write readme stuff
 - Add the following comment before every hoisted target:
