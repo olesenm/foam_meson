@@ -163,7 +163,8 @@ class BuildDesc:
                 }
             )
         res = subprocess.check_output(
-            "cd meson/grouped_topo_sort/ && cargo run --release",
+            "cargo run --release",
+            cwd=Path(__file__).parent / "grouped_topo_sort",
             shell=True,
             universal_newlines=True,
             input=json.dumps(ar),

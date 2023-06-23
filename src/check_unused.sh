@@ -1,4 +1,5 @@
 #!/bin/sh
+# Check if you have a .C file that is not used anywhere
 
 # Run from this directory
 cd ${0%/*} || exit 1

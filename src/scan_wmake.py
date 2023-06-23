@@ -8,9 +8,9 @@ from pathlib import Path
 import pickle
 import typing as T
 import os
-from meson_codegen import *
+from .meson_codegen import *
 from enum import Enum
-import heuristics
+from . import heuristics
 
 optional_deps = {
     "mpfr": "lib",
@@ -36,7 +36,7 @@ def mangle_name(name):
     return name.replace("-", "_").replace("/", "_slash_")
 
 
-ACTIVATE_CACHE = True  # todo: disable before release
+ACTIVATE_CACHE = False
 
 
 # Kind of broken since it does not hash the function arguments

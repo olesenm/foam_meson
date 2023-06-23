@@ -7,24 +7,20 @@ LN_INCLUDE_MODEL = "always_regen"  # "always_regen" or "regen_on_reconfigure"
 
 from os import path, listdir, walk
 import os
-from meson_codegen import *
-from scan_wmake import *
+from src.meson_codegen import *
+from src.scan_wmake import *
 import sys
 import textwrap
 import pdb
-
-# import cProfile
+import argparse
 import subprocess
 import shutil
 import stat
-import heuristics
+import src.heuristics
 
 
 def from_this_directory():
     os.chdir(path.dirname(sys.argv[0]))
-
-
-assert "WM_PROJECT_DIR" not in os.environ, "Don't source etc/bashrc"
 
 
 # see https://stackoverflow.com/questions/12217537/can-i-force-debugging-python-on-assertionerror
@@ -181,12 +177,12 @@ class WhitespaceFixer:
         return ret
 
 
-def wmake_to_meson(PROJECT_ROOT, wmake_dir, preprocessed, parsed_options):
+def wmake_to_meson(project_root, wmake_dir, preprocessed, parsed_options):
     dirpath = wmake_dir / "Make"
     optionsdict = parsed_options
     files_list, files_specials = preprocessed
-    inter = parse_files_file(PROJECT_ROOT, wmake_dir, files_list)
-    includes, cpp_args = calc_includes_and_flags(PROJECT_ROOT, wmake_dir, optionsdict)
+    inter = parse_files_file(project_root, wmake_dir, files_list)
+    includes, cpp_args = calc_includes_and_flags(project_root, wmake_dir, optionsdict)
     order_depends, dependencies = calc_libs(optionsdict, inter.typ)
 
     template_part_1 = ""
@@ -227,7 +223,7 @@ def wmake_to_meson(PROJECT_ROOT, wmake_dir, preprocessed, parsed_options):
                 '{varname}',
                 input: '<PATH>{x}</PATH>',
                 output : '{name}.cc',
-                command: [m4lemon, meson.source_root(), '<PATH>{PROJECT_ROOT / wmake_dir}</PATH>', lemonbin, '@INPUT@', '@OUTPUT@' ])
+                command: [m4lemon, meson.source_root(), '<PATH>{project_root / wmake_dir}</PATH>', lemonbin, '@INPUT@', '@OUTPUT@' ])
             """
             other_srcs.append(varname)
         else:
@@ -246,18 +242,22 @@ def wmake_to_meson(PROJECT_ROOT, wmake_dir, preprocessed, parsed_options):
             path = include.path
             if path.exists():
                 cpp_args.append(
-                    f"'-I' + meson.source_root() / '{path.relative_to(PROJECT_ROOT)}'"
+                    f"'-I' + meson.source_root() / '{path.relative_to(project_root)}'"
                 )
             else:
-                print(f"Warning: {path} does not exist")
+                print(
+                    f"Warning: {path} does not exist, but {project_root / dirpath / 'options'} references it."
+                )
         elif isinstance(include, RecursiveInclude):
             path = include.path
             if path.exists():
                 cpp_args.append(
-                    f"'-I' + recursive_include_dirs / '{path.relative_to(PROJECT_ROOT)}'"
+                    f"'-I' + recursive_include_dirs / '{path.relative_to(project_root)}'"
                 )
             else:
-                print(f"Warning: {path} does not exist")
+                print(
+                    f"Warning: {path} does not exist, but {project_root / dirpath / 'options'} references it."
+                )
         else:
             raise NotImplemented
 
@@ -368,7 +368,7 @@ def wmake_to_meson(PROJECT_ROOT, wmake_dir, preprocessed, parsed_options):
         """
 
     template = Template(str(template))
-    template.make_absolute(PROJECT_ROOT / wmake_dir)
+    template.make_absolute(project_root / wmake_dir)
 
     template.assert_absolute()
     template.cleanup()
@@ -404,60 +404,45 @@ class MyEncoder(JSONEncoder):
         return o.__dict__
 
 
-def get_api_version(PROJECT_ROOT):
-    for line in (PROJECT_ROOT / "META-INFO" / "api-info").read_text().split():
+def get_api_version(project_root):
+    for line in (project_root / "META-INFO" / "api-info").read_text().split():
         if line.startswith("api="):
             return remove_prefix(line, "api=").strip()
     raise RuntimeError("Unable to get openfoam version")
 
 
-def main():
-    from_this_directory()
-    os.chdir("..")
-    Path("disccache").mkdir(exist_ok=True)
+def inner_generate_meson_build(project_root):
+    assert project_root.is_absolute()
 
-    PROJECT_ROOT = Path(os.getcwd()) / "disccache" / "dev"
     files_written = set()
 
     def copy_file_to_output(inp, outp):
-        outp = PROJECT_ROOT / outp
+        outp = project_root / outp
         assert outp not in files_written
         files_written.add(outp)
-        shutil.copyfile(inp, outp)
+        shutil.copyfile(Path(__file__).parent / "src" / inp, outp)
 
-    if not PROJECT_ROOT.exists():
-        subprocess.check_call(
-            [
-                "git",
-                "clone",
-                "https://develop.openfoam.com/Development/openfoam.git",
-                PROJECT_ROOT,
-                # "--depth=1",
-            ]
-        )
-    subprocess.check_call(
-        ["git", "checkout", "988ec18ecca76aa0cef65acbab765374416d61b6"],
-        cwd=PROJECT_ROOT,
-    )
-
-    if not (PROJECT_ROOT / "bin" / "foamEtcFile").is_file():
+    if not (project_root / "bin" / "foamEtcFile").is_file():
         raise ValueError(
-            "It looks like PROJECT_ROOT does not point to an OpenFOAM repository"
+            "It looks like project_root does not point to an OpenFOAM repository"
         )
 
-    api_version = get_api_version(PROJECT_ROOT)
+    if "WM_PROJECT_DIR" in os.environ:
+        print("Warning: It seems like you sourced 'etc/bashrc'. This is unnecessary.")
+
+    api_version = get_api_version(project_root)
 
     broken_dirs = [Path(p) for p in heuristics.broken_dirs()]
-    wmake_dirs = find_all_wmake_dirs(PROJECT_ROOT)
-    totdesc = BuildDesc(PROJECT_ROOT)
-    preprocessed = all_preprocess_files_file(PROJECT_ROOT, wmake_dirs, api_version)
-    parsed_options = all_parse_options_file(PROJECT_ROOT, wmake_dirs)
+    wmake_dirs = find_all_wmake_dirs(project_root)
+    totdesc = BuildDesc(project_root)
+    preprocessed = all_preprocess_files_file(project_root, wmake_dirs, api_version)
+    parsed_options = all_parse_options_file(project_root, wmake_dirs)
     all_configure_time_recursively_scanned_dirs = set()
 
     broken_provides = []
     for wmake_dir in wmake_dirs:
         node, configure_time_recursively_scanned_dirs = wmake_to_meson(
-            PROJECT_ROOT, wmake_dir, preprocessed[wmake_dir], parsed_options[wmake_dir]
+            project_root, wmake_dir, preprocessed[wmake_dir], parsed_options[wmake_dir]
         )
         if wmake_dir in broken_dirs:
             broken_provides.append(node.provides)
@@ -478,7 +463,7 @@ def main():
     else:
         recursive_regen_dirs = []
     recursive_regen_dirs_joined = ", ".join([f"'{el}'" for el in recursive_regen_dirs])
-    recursive_regen_dirs = [PROJECT_ROOT / el for el in recursive_regen_dirs]
+    recursive_regen_dirs = [project_root / el for el in recursive_regen_dirs]
 
     for dirp in all_configure_time_recursively_scanned_dirs:
         assert any(
@@ -626,7 +611,7 @@ def main():
         """
         )
 
-    totdesc.set_custom_prefix(PROJECT_ROOT / "meson.build", mainsrc)
+    totdesc.set_custom_prefix(project_root / "meson.build", mainsrc)
 
     if EXPLAIN_CODEGEN:
         print(
@@ -657,7 +642,7 @@ def main():
 
     totdesc.set_outpaths()
     totdesc.writeToFileSystem(files_written)
-    Path(PROJECT_ROOT / "etc/meson_helpers").mkdir(exist_ok=True)
+    Path(project_root / "etc/meson_helpers").mkdir(exist_ok=True)
     helper_scripts = [
         "get_version.sh",
         "set_versions_in_foamConfig_Cver.sh",
@@ -668,23 +653,88 @@ def main():
         helper_scripts.append("rec_C.sh")
     for fn in helper_scripts:
         outp = Path("etc/meson_helpers") / fn
-        copy_file_to_output(f"meson/{fn}", outp)
-        os.chmod(PROJECT_ROOT / outp, 0o755)
+        copy_file_to_output(fn, outp)
+        os.chmod(project_root / outp, 0o755)
 
     copy_file_to_output("meson_options.txt", "meson_options.txt")
-    copy_file_to_output("meson/comptest.C", "src/OSspecific/POSIX/signals/comptest.C")
+    copy_file_to_output("comptest.C", "src/OSspecific/POSIX/signals/comptest.C")
+
+    for fp in project_root.rglob("meson.build"):
+        if fp not in files_written:
+            print(
+                f"WARNING: '{fp}' exists, but it is not used. It was not created by this script (at least not in this run). You might want to delete it."
+            )
+
+    return files_written
+
+
+def old_main():
+    from_this_directory()
+    # os.chdir("..")
+    Path("disccache").mkdir(exist_ok=True)
+
+    project_root = Path.cwd() / "disccache" / "dev"
+
+    if not project_root.exists():
+        subprocess.check_call(
+            [
+                "git",
+                "clone",
+                "https://develop.openfoam.com/Development/openfoam.git",
+                project_root,
+                # "--depth=1",
+            ]
+        )
+    subprocess.check_call(
+        ["git", "checkout", "988ec18ecca76aa0cef65acbab765374416d61b6"],
+        cwd=project_root,
+    )
+
+    files_written = inner_generate_meson_build(project_root)
 
     foam_hash = subprocess.check_output(
         ["git", "rev-parse", "--verify", "HEAD"],
         universal_newlines=True,
-        cwd=PROJECT_ROOT,
+        cwd=project_root,
     ).strip()[0:10]
-    PATCH_OUTPUT = os.getcwd() + "/" + f"for_openfoam_commit_hash_{foam_hash}.diff"
+    PATCH_OUTPUT = Path.cwd() / f"for_openfoam_commit_hash_{foam_hash}.diff"
 
-    os.chdir(PROJECT_ROOT)
+    os.chdir(project_root)
     subprocess.check_call(["git", "reset", "HEAD"])
     subprocess.check_call(["git", "add"] + [str(el) for el in files_written])
     assert os.system(f"git diff HEAD > {PATCH_OUTPUT} && git reset HEAD") == 0
+
+
+def main():
+    # prog='generate_meson_build.py'
+    parser = argparse.ArgumentParser(
+        description="Generates meson.build files for an OpenFOAM repository."
+    )
+    parser.add_argument(
+        "project-dir", help="Path to the OpenFOAM repository", type=Path
+    )
+    args = parser.parse_args()
+    project_root = getattr(args, "project-dir")
+    if not project_root.exists():
+        print(f"ERROR: '{project_root}' does not exist")
+        exit(1)
+    project_root = Path.cwd() / project_root
+    files_written = inner_generate_meson_build(project_root)
+    print(
+        textwrap.dedent(
+            f"""
+    Finished creating meson.build files, wrote {len(files_written)} files to disk.
+    You can now use openfoam like this:
+    cd '{project_root}'
+    meson setup some_path
+    cd some_path
+    ninja
+    meson devenv # Launches a subshell
+    cd '{project_root}/tutorials/basic/laplacianFoam/flange'
+    ./Allrun
+    Sourcing 'etc/bashrc' is not necessary."""
+        )
+    )
 
 
 if __name__ == "__main__":
