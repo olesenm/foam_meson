@@ -636,9 +636,10 @@ def inner_generate_meson_build(project_root):
     # This could be considered a bug in meson, but meson (probably)
     # will not fix this:
     # https://github.com/mesonbuild/meson/issues/8752
-    totdesc.elements["exe_extrude2DMesh"].ideal_path = Path(
-        "applications/utilities/mesh"
-    ).parts
+    if "exe_extrude2DMesh" in totdesc.elements:
+        totdesc.elements["exe_extrude2DMesh"].ideal_path = Path(
+            "applications/utilities/mesh"
+        ).parts
 
     totdesc.set_outpaths()
     totdesc.writeToFileSystem(files_written)
