@@ -719,7 +719,7 @@ def main():
     if not project_root.exists():
         print(f"ERROR: '{project_root}' does not exist")
         exit(1)
-    project_root = Path.cwd() / project_root
+    project_root = project_root.resolve()
     files_written = inner_generate_meson_build(project_root)
     print(
         textwrap.dedent(
