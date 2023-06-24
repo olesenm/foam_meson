@@ -90,8 +90,9 @@ dependencies = [
 
 [[package]]
 name = "graphalgs"
-version = "0.1.0"
-source = "git+https://github.com/starovoid/graphalgs#37615c2f0fbbc49eac736ac94cec848cc7b2668d"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8ac738c8d68e7619fd11551ed6faf205ccc7f3591dcf88ac286747d849b81fba"
 dependencies = [
  "nalgebra",
  "num-traits",

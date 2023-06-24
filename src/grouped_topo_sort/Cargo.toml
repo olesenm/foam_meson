@@ -10,7 +10,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 petgraph = "0.6.2"
 itertools = "0.10.5"
-graphalgs = {git = "https://github.com/starovoid/graphalgs" }
+graphalgs = "0.1.1"
 rand = { version = "0.8.5", features = [ "small_rng" ] }
 enum-as-inner = "0.5.1"
 permute = "0.2.1"
