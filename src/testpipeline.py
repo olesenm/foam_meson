@@ -47,9 +47,7 @@ def install_deps(distro):
         return """
         zypper install --no-confirm meson git gcc-c++ wget zlib-devel fftw3-devel libboost_system1_75_0-devel openmpi-devel flex make cargo
         mpi-selector --set openmpi
-        set +u
-        source /etc/profile.d/mpi-selector.sh
-        set -u
+
         """
     else:
         raise NotImplemented
@@ -59,7 +57,11 @@ def prepare(distro):
     if distro in ["debian", "ubuntu"]:
         return 'source "$HOME/.cargo/env"'
     elif distro == "opensuse/leap":
-        return ""
+        return """
+                set +u
+                source /etc/profile.d/mpi-selector.sh
+                set -u
+        """
     else:
         raise NotImplemented
 
@@ -77,11 +79,7 @@ def total(distro):
     script = rf"""
     set -euo pipefail
     IFS=$'\n\t'
-    cd /root/openfoam
-    git rev-parse --verify HEAD
-    git status
-    {meson_cmd(distro)} setup ../build
-    cd ../build
+    cd /root/build
     ninja
     {meson_cmd(distro)} devenv bash -c "cd ../openfoam/tutorials/basic/laplacianFoam/flange && ./Allrun"
 
@@ -269,6 +267,7 @@ def main():
                 {prepare(distro)}
                 ../foam_meson/generate_meson_build.py .
                 git add -A
+                {meson_cmd(distro)} setup ../build
                 """
                     ),
                 )
