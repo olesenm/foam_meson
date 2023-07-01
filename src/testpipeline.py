@@ -79,6 +79,7 @@ def total(distro):
     script = rf"""
     set -euo pipefail
     IFS=$'\n\t'
+    {prepare(distro)}
     cd /root/build
     ninja
     {meson_cmd(distro)} devenv bash -c "cd ../openfoam/tutorials/basic/laplacianFoam/flange && ./Allrun"
