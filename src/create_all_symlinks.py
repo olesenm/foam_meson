@@ -25,7 +25,7 @@ def create_symlinks_for_dir(subdir):
             continue
         outfile = outdir / fp.name
         if outfile.is_symlink():
-            if os.readlink(outfile) != fp:
+            if outfile.readlink() != fp:
                 outfile.unlink()
                 outfile.symlink_to(fp)
         else:
@@ -46,9 +46,9 @@ for (
 ]:
     create_symlinks_for_dir(source_root / el)
 
-backlink = (build_root / "source")
+backlink = build_root / "source"
 if backlink.is_symlink():
-    assert(os.readlink(backlink) == source_root)
+    assert backlink.readlink() == source_root
 else:
     backlink.symlink_to(source_root)
 
