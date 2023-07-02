@@ -1,5 +1,6 @@
 def scanning_disabled():
-    return ["applications/test/00-dummy/dummy", "src/OSspecific/MSwindows"]
+    # If you touch/remove applications/test/00-dummy, be sure to test it on the maintenance-v2006 branch.
+    return ["applications/test/00-dummy", "src/OSspecific/MSwindows"]
 
 
 def broken_dirs():

@@ -177,16 +177,15 @@ class WhitespaceFixer:
         return ret
 
 
-def wmake_to_meson(project_root, wmake_dir, preprocessed, parsed_options):
+def wmake_to_meson(project_root, api_version, wmake_dir, parsed_options):
     dirpath = wmake_dir / "Make"
     optionsdict = parsed_options
-    files_list, files_specials = preprocessed
-    inter = parse_files_file(project_root, wmake_dir, files_list)
+    inter, specials = parse_files_file(project_root, api_version, wmake_dir)
     includes, cpp_args = calc_includes_and_flags(project_root, wmake_dir, optionsdict)
     order_depends, dependencies = calc_libs(optionsdict, inter.typ)
 
     template_part_1 = ""
-    for el in files_specials:
+    for el in specials:
         if el == "precision":
             template_part_1 = f"""
             dp_add = files('primitives/Vector/doubleVector/doubleVector.C', 'primitives/Tensor/doubleTensor/doubleTensor.C')
@@ -195,6 +194,22 @@ def wmake_to_meson(project_root, wmake_dir, preprocessed, parsed_options):
                 srcfiles += dp_add
             elif get_option('WM_PRECISION_OPTION') != 'SP' and get_option('WM_PRECISION_OPTION') != 'SPDP'
                 srcfiles += sp_add
+            endif
+            """
+        elif el == "sunstack1":
+            template_part_1 = f"""
+            if host_machine.system() == 'sunos'
+                srcfiles += files('dummyPrintStack.C')
+            else
+                srcfiles += files('printStack.C')
+            endif
+            """
+        elif el == "sunstack2":
+            template_part_1 = f"""
+            if host_machine.system() == 'sunos'
+                srcfiles += files('printStack/dummyPrintStack.C')
+            else
+                srcfiles += files('printStack/printStack.C')
             endif
             """
         else:
@@ -207,22 +222,27 @@ def wmake_to_meson(project_root, wmake_dir, preprocessed, parsed_options):
     for el in inter.srcs:
         if isinstance(el, SimpleSourcefile):
             files_srcs.append(el.path)
-        elif isinstance(el, FoamConfigSourcefile):
-            other_srcs.append("foamConfig_cpp")
         elif isinstance(el, FlexgenSourcefile):
             other_srcs.append(f"flexgen.process('<PATH>{el.path}</PATH>')")
-        elif isinstance(el, LyyM4Sourcefile):
-            x = el.path
-            name = remove_suffix(x.parts[-1], ".lyy-m4")
-            varname = x.parts[-1]
-            for c in "$", ".", "(", ")", "/", "_", "-":
-                varname = varname.replace(c, "_")
-            varname + "_cpp"
+        elif isinstance(el, CverSourcefile):
+            name = remove_suffix(el.path.parts[-1], ".Cver")
+            varname = mangle_name(el.path.parts[-1])
             template += f"""
             {varname} = custom_target(
                 '{varname}',
-                input: '<PATH>{x}</PATH>',
-                output : '{name}.cc',
+                input: '<PATH>{el.path}</PATH>',
+                output : '{name}.C',
+                command: [meson.source_root() / 'etc' / 'meson_helpers' / 'set_versions_in_Cver.sh', meson.source_root(), '@INPUT@', '@OUTPUT@'])
+            """
+            other_srcs.append(varname)
+        elif isinstance(el, LyyM4Sourcefile):
+            name = remove_suffix(el.path.parts[-1], ".lyy-m4")
+            varname = mangle_name(el.path.parts[-1])
+            template += f"""
+            {varname} = custom_target(
+                '{varname}',
+                input: '<PATH>{el.path}</PATH>',
+                output : '{name}.C',
                 command: [m4lemon, meson.source_root(), '<PATH>{project_root / wmake_dir}</PATH>', lemonbin, '@INPUT@', '@OUTPUT@' ])
             """
             other_srcs.append(varname)
@@ -242,7 +262,7 @@ def wmake_to_meson(project_root, wmake_dir, preprocessed, parsed_options):
             path = include.path
             if path.exists():
                 cpp_args.append(
-                    f"'-I' + meson.source_root() / '{path.relative_to(project_root)}'"
+                    f"'-I' + meson.source_root() / '{path.relative_to(project_root)}'"  # grepmarker_relto_inc
                 )
             else:
                 print(
@@ -252,7 +272,7 @@ def wmake_to_meson(project_root, wmake_dir, preprocessed, parsed_options):
             path = include.path
             if path.exists():
                 cpp_args.append(
-                    f"'-I' + recursive_include_dirs / '{path.relative_to(project_root)}'"
+                    f"'-I' + recursive_include_dirs / '{path.relative_to(project_root)}'"  # grepmarker_relto_inc
                 )
             else:
                 print(
@@ -435,14 +455,13 @@ def inner_generate_meson_build(project_root):
     broken_dirs = [Path(p) for p in heuristics.broken_dirs()]
     wmake_dirs = find_all_wmake_dirs(project_root)
     totdesc = BuildDesc(project_root)
-    preprocessed = all_preprocess_files_file(project_root, wmake_dirs, api_version)
     parsed_options = all_parse_options_file(project_root, wmake_dirs)
     all_configure_time_recursively_scanned_dirs = set()
 
     broken_provides = []
     for wmake_dir in wmake_dirs:
         node, configure_time_recursively_scanned_dirs = wmake_to_meson(
-            project_root, wmake_dir, preprocessed[wmake_dir], parsed_options[wmake_dir]
+            project_root, api_version, wmake_dir, parsed_options[wmake_dir]
         )
         if wmake_dir in broken_dirs:
             broken_provides.append(node.provides)
@@ -540,11 +559,6 @@ def inner_generate_meson_build(project_root):
     if not cppc.compiles(files('src/OSspecific/POSIX/signals/comptest.C'))
         error('"src/OSspecific/POSIX/signals/comptest.C" failed to compile. Thus, we refuse to compile OpenFOAM because "src/OSspecific/POSIX/signals/sigFpe.C" will fail to compile. Most likely, you are on a linux machine using a libc other than gnu libc. Currently, only gnu libc is supported on linux machines.')
     endif
-
-    foamConfig_cpp = custom_target('foamConfig.cpp',
-    output : 'foamConfig.cpp',
-    input : 'src/OpenFOAM/global/foamConfig.Cver',
-    command : [meson.source_root() / 'etc' / 'meson_helpers' / 'set_versions_in_foamConfig_Cver.sh', meson.source_root(), '@OUTPUT@'])
 
     m_dep = cppc.find_library('m')
     dl_dep = cppc.find_library('dl')
@@ -646,7 +660,7 @@ def inner_generate_meson_build(project_root):
     Path(project_root / "etc/meson_helpers").mkdir(exist_ok=True)
     helper_scripts = [
         "get_version.sh",
-        "set_versions_in_foamConfig_Cver.sh",
+        "set_versions_in_Cver.sh",
         "m4lemon.sh",
         "create_all_symlinks.py",
     ]
@@ -739,5 +753,16 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except EncountedComplexConfig as e:
+        print(
+            "\nERROR: Unable to generate meson.build files because we just encountered a known limitation in this script:\n"
+        )
+        assert len(e.args) == 1
+        print(e.args[0])
+        print(
+            "\nIssue Tracker: https://codeberg.org/Volker_Weissmann/foam_meson/issues"
+        )
+        exit(1)
     # cProfile.run('main()')

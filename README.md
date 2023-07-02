@@ -20,6 +20,7 @@ Note that `source etc/bashrc` is not needed.
 
 ## Things that are not yet implemented
 
+- Openfoam Version v2006 (June 2020) works, but in Openfoam Version v1912 (December 2019), `generate_meson_build.py` crashes.
 - Building something that is outside of the main openfoam source tree ([wmake supports this](https://doc.cfd.direct/openfoam/user-guide-v10/compiling-applications#x10-830003.2.7))
 - Building the ThirdParty folder
 - Using these dependencies:

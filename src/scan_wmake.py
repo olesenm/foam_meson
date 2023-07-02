@@ -31,6 +31,11 @@ optional_deps = {
 }
 
 
+# Indicates that scan_wmake.py saw something too complicated in Make/files
+class EncountedComplexConfig(Exception):
+    pass
+
+
 # Turns a string into a valid identifier that can be used as a variable name in meson.build
 def mangle_name(name):
     return name.replace("-", "_").replace("/", "_slash_")
@@ -161,55 +166,6 @@ class NonRecursiveInclude(Include):
         self.path = path
 
 
-hardcoded_precision = """
-#if !defined(WM_DP)
-primitives/Vector/doubleVector/doubleVector.C
-primitives/Tensor/doubleTensor/doubleTensor.C
-#endif
-#if !defined(WM_SP) && !defined(WM_SPDP)
-primitives/Vector/floatVector/floatVector.C
-primitives/Tensor/floatTensor/floatTensor.C
-#endif
-"""
-
-
-def preprocess_files_file(PROJECT_ROOT, wmake_dir, api_version):
-    specials = []
-    src = (PROJECT_ROOT / wmake_dir / "Make" / "files").read_text()
-    if hardcoded_precision in src:
-        specials.append("precision")
-        src = src.replace(hardcoded_precision, "\n")
-    assert "defined" not in src
-    with tempfile.NamedTemporaryFile("w") as tmp:
-        tmp.write(src)
-        tmp.flush()
-        # tmp.name,
-        files_list = subprocess.check_output(
-            [
-                "cpp",
-                # "-traditional-cpp",
-                f"-DOPENFOAM={api_version}",
-                tmp.name,
-            ],
-        ).decode()
-    files_list = "\n".join(
-        [
-            line.rstrip()
-            for line in files_list.split("\n")
-            if not line.startswith("#") and not line.rstrip() == ""
-        ]
-    )
-    return files_list, specials
-
-
-@disccache
-def all_preprocess_files_file(PROJCET_ROOT, wmake_dirs, api_version):
-    return {
-        wmake_dir: preprocess_files_file(PROJCET_ROOT, wmake_dir, api_version)
-        for wmake_dir in wmake_dirs
-    }
-
-
 class TargetType(Enum):
     exe = 1
     lib = 2
@@ -240,8 +196,11 @@ class LyyM4Sourcefile(GeneralizedSourcefile):
         self.path = path
 
 
-class FoamConfigSourcefile(GeneralizedSourcefile):
-    pass
+class CverSourcefile(GeneralizedSourcefile):
+    path: Path
+
+    def __init__(self, path):
+        self.path = path
 
 
 class Intermediate:
@@ -264,12 +223,68 @@ def substitute(vardict, cur):
             return cur
 
 
-def parse_files_file(PROJECT_ROOT, wmake_dir, files_list):
+# find -name files -type f -not -path ./wmake/makefiles/files | xargs rg "#" --
+hardcoded_specials = {
+    "precision": """
+#if !defined(WM_DP)
+primitives/Vector/doubleVector/doubleVector.C
+primitives/Tensor/doubleTensor/doubleTensor.C
+#endif
+#if !defined(WM_SP) && !defined(WM_SPDP)
+primitives/Vector/floatVector/floatVector.C
+primitives/Tensor/floatTensor/floatTensor.C
+#endif
+""",
+    "sunstack1": """
+#ifdef SunOS64
+dummyPrintStack.C
+#else
+printStack.C
+#endif
+""",
+    "sunstack2": """
+#ifdef __sun__
+printStack/dummyPrintStack.C
+#else
+printStack/printStack.C
+#endif
+""",
+}
+
+special_oldnewstub = """
+#if OPENFOAM > 1812
+newStub.C
+#else
+oldStub.C
+#endif
+"""
+
+
+def parse_files_file(PROJECT_ROOT, api_version, wmake_dir):
+    specials = []
+    path = PROJECT_ROOT / wmake_dir / "Make" / "files"
+    src = path.read_text()
+    src = commentRemover(src)
+
+    for special, hardcoded in hardcoded_specials.items():
+        if hardcoded in src:
+            specials.append(special)
+            src = src.replace(hardcoded, "\n")
+
+    if special_oldnewstub in src:
+        if int(api_version) > 1812:
+            src = src.replace(special_oldnewstub, "\nnewStub.C\n")
+        else:
+            src = src.replace(special_oldnewstub, "\noldStub.C\n")
+
+    lines = src.split("\n")
+    lines = [line.strip() for line in lines if line.strip() != ""]
+
     srcs = []
     varname = None
     typ = None
     vardict = {}
-    for line in files_list.split("\n"):
+    for line in lines:
         if line.startswith("EXE"):
             line = remove_prefix(line, "EXE")
             line = remove_prefix(line, "=")
@@ -313,8 +328,9 @@ def parse_files_file(PROJECT_ROOT, wmake_dir, files_list):
             elif line.endswith(".L"):
                 assert "$" not in line
                 srcs.append(FlexgenSourcefile(PROJECT_ROOT / wmake_dir / line))
-            elif line == "global/foamConfig.Cver":
-                srcs.append(FoamConfigSourcefile())
+            elif line.endswith(".Cver"):
+                assert "$" not in line
+                srcs.append(CverSourcefile(PROJECT_ROOT / wmake_dir / line))
             elif (
                 line.endswith(".hpp")
                 or line.endswith(".H")
@@ -327,13 +343,20 @@ def parse_files_file(PROJECT_ROOT, wmake_dir, files_list):
                 assert "$" not in line
                 srcs.append(SimpleSourcefile(PROJECT_ROOT / wmake_dir / line))
             else:
-                raise ValueError(line)
+                raise EncountedComplexConfig(
+                    f"The file '{path}' contains the following line, but I do not know how to handle that:\n{line}"
+                )
         else:
-            raise ValueError(line)
-    return Intermediate(
-        srcs=srcs,
-        varname=varname,
-        typ=typ,
+            raise EncountedComplexConfig(
+                f"The file '{path}' contains the following line, but I do not know how to handle that:\n{line}"
+            )
+    return (
+        Intermediate(
+            srcs=srcs,
+            varname=varname,
+            typ=typ,
+        ),
+        specials,
     )
 
 
@@ -362,6 +385,14 @@ def calc_includes_and_flags(
                 else:
                     abspath = PROJECT_ROOT / wmake_dir / el
                     abspath = Path(os.path.normpath(str(abspath)))
+
+                if not PROJECT_ROOT in abspath.parents:
+                    # If abspath is not inside of PROJECT_ROOT, then 'path.relative_to(project_root)' at grepmarker_relto_inc will crash
+                    options_path = PROJECT_ROOT / wmake_dir / "Make" / "options"
+                    raise EncountedComplexConfig(
+                        f"It seems like '{options_path}' is telling us to pass '-I{abspath}' to the compiler. But this path is outside of '{PROJECT_ROOT}', which is (currently) not supported."
+                    )
+
                 if abspath.parts[-1] == "lnInclude":
                     recdir = abspath.parent
                     includes.append(RecursiveInclude(recdir))
