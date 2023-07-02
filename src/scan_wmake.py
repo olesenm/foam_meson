@@ -38,7 +38,7 @@ class EncountedComplexConfig(Exception):
 
 # Turns a string into a valid identifier that can be used as a variable name in meson.build
 def mangle_name(name):
-    return name.replace("-", "_").replace("/", "_slash_")
+    return name.replace(".", "_").replace("-", "_").replace("/", "_slash_")
 
 
 ACTIVATE_CACHE = False
