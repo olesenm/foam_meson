@@ -179,7 +179,7 @@ class BuildDesc:
             ideal = "/".join(target.ideal_path) + "/meson.build"
             op = "/".join(target.outpath) + "/meson.build"
             print(
-                f"We would like to put the target '{target.provides}' into '{ideal}', but due to some graph theory stuff that is impossible/hard so we put it into '{op}' instead."
+                f"We would like to put the target '{target.provides}' into '{ideal}', but due to some graph theory stuff this is impossible/hard so we put it into '{op}' instead."
             )
         print(f"{len(changes)} target(s) will not be in their preferred directory.")
 
