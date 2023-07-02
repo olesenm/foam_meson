@@ -140,7 +140,7 @@ def main():
     distro_foam_pairs = [
         ("debian", "develop"),
         ("opensuse/leap", "maintenance-v2212"),
-        ("ubuntu", "maintenance-v1912"),
+        ("ubuntu", "maintenance-v2006"),
     ]
 
     if os.geteuid() != 0:
