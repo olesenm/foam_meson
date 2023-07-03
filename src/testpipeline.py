@@ -45,7 +45,7 @@ def install_deps(distro):
         """
     elif distro == "opensuse/leap":
         return """
-        zypper install --no-confirm meson git clang wget zlib-devel fftw3-devel libboost_system1_75_0-devel openmpi-devel flex make cargo
+        zypper install --no-confirm meson git gcc-c++ wget zlib-devel fftw3-devel libboost_system1_75_0-devel openmpi-devel flex make cargo
         mpi-selector --set openmpi
 
         """
