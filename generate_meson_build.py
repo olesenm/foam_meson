@@ -242,7 +242,7 @@ def wmake_to_meson(project_root, api_version, wmake_dir, parsed_options):
             {varname} = custom_target(
                 '{varname}',
                 input: '<PATH>{el.path}</PATH>',
-                output : '{name}.C',
+                output : '{name}.cc',
                 command: [m4lemon, meson.source_root(), '<PATH>{project_root / wmake_dir}</PATH>', lemonbin, '@INPUT@', '@OUTPUT@' ])
             """
             other_srcs.append(varname)
