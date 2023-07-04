@@ -98,7 +98,13 @@ def commentRemover(text):
 def parse_options_file(PROJECT_ROOT, wmake_dir):
     makefilesource = (PROJECT_ROOT / wmake_dir / "Make" / "options").read_text()
     makefilesource = commentRemover(makefilesource)
-    makefilesource = makefilesource.replace("include $(GENERAL_RULES)/mpi-rules", "")
+
+    for line in [
+        "include $(GENERAL_RULES)/mpi-rules",
+        "sinclude $(GENERAL_RULES)/mplib$(WM_MPLIB)",
+        "sinclude $(DEFAULT_RULES)/mplib$(WM_MPLIB)",
+    ]:
+        makefilesource = makefilesource.replace(f"{line}", "")
 
     vardict = {
         "$(LIB_SRC)": path.relpath("src", wmake_dir),
