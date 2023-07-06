@@ -308,8 +308,8 @@ def main():
                 ],
                 cwd=wd / "foam_meson",
             )
+            sane_call(["git", "pull", "codeberg", "trunk"], cwd=wd / "foam_meson")
             sane_call(["git", "checkout", "trunk"], cwd=wd / "foam_meson")
-            sane_call(["git", "pull"], cwd=wd / "foam_meson")
             sane_call(["git", "merge", "develop"], cwd=wd / "foam_meson")
             sane_call(["git", "push"], cwd=wd / "foam_meson")
 
