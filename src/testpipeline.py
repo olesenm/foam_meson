@@ -36,8 +36,7 @@ def install_deps(distro):
     if distro in ["debian", "ubuntu"]:
         return """
         apt update
-        apt install -y git clang zlib1g-dev libfftw3-dev mpi-default-dev libboost-system-dev flex python3 ninja-build wget make curl
-        curl https://sh.rustup.rs -sSf | sh -s -- -y
+        apt install -y git clang zlib1g-dev libfftw3-dev mpi-default-dev libboost-system-dev flex python3 ninja-build wget make
         git clone https://github.com/mesonbuild/meson
         cd meson
         git checkout 0.59.0
@@ -45,7 +44,7 @@ def install_deps(distro):
         """
     elif distro == "opensuse/leap":
         return """
-        zypper install --no-confirm meson git gcc-c++ wget zlib-devel fftw3-devel libboost_system1_75_0-devel openmpi-devel flex make cargo
+        zypper install --no-confirm meson git gcc-c++ wget zlib-devel fftw3-devel libboost_system1_75_0-devel openmpi-devel flex make
         mpi-selector --set openmpi
 
         """

@@ -13,6 +13,7 @@ from collections import defaultdict
 from pathlib import Path
 import typing as T
 import math
+from .grouped_topo_sort import grouped_topo_sort
 
 if DRYRUN:
     print("##################### WARNING: DRYRUNNING ################################")
@@ -62,6 +63,16 @@ def find_shortest_cycle(graph):
     while cycle[0] != cycle[-1] or len(cycle) == 1:
         cycle.append(min([(dist[k][cycle[0]], k) for k in graph[cycle[-1]]])[1])
     return cycle
+
+
+def starts_with(a, b):
+    depth = len(a)
+    if depth > len(b):
+        return False
+    for i in range(depth):
+        if b[i] != a[i]:
+            return False
+    return True
 
 
 # Template is essentially a wrapper around a string (Template.temp is a string), but with '<PATH>/some/path</PATH>' instead of '/some/path', which allows us to do things like: Replace all absolute paths with equivalent relative paths
@@ -152,36 +163,17 @@ class BuildDesc:
 
     # todo: documentation
     def set_outpaths(self):
-        ar = []
-        for key, value in self.elements.items():
-            assert key == value.provides
-            ar.append(
-                {
-                    "provides": value.provides,
-                    "ddeps": value.ddeps,
-                    "ideal_path": value.ideal_path,
-                }
-            )
-        res = subprocess.check_output(
-            "cargo run --release",
-            cwd=Path(__file__).parent / "grouped_topo_sort",
-            shell=True,
-            universal_newlines=True,
-            input=json.dumps(ar),
-        )
-        changes = json.loads(res)
-        for target in self.elements:
-            self.elements[target].outpath = self.elements[target].ideal_path
-        for change in changes:
-            target = self.elements[change["target"]]
-            target.outpath = change["chosen_path"]
-
-            ideal = "/".join(target.ideal_path) + "/meson.build"
-            op = "/".join(target.outpath) + "/meson.build"
-            print(
-                f"We would like to put the target '{target.provides}' into '{ideal}', but due to some graph theory stuff this is impossible/hard so we put it into '{op}' instead."
-            )
-        print(f"{len(changes)} target(s) will not be in their preferred directory.")
+        grouped_topo_sort(self.elements)
+        count = 0
+        for name, target in self.elements.items():
+            if target.ideal_path != target.outpath:
+                count += 1
+                ideal = "/".join(target.ideal_path) + "/meson.build"
+                op = "/".join(target.outpath) + "/meson.build"
+                print(
+                    f"We would like to put the target '{target.provides}' into '{ideal}', but due to some graph theory stuff this is impossible/hard so we put it into '{op}' instead."
+                )
+        print(f"{count} target(s) will not be in their preferred directory.")
 
     def set_custom_prefix(self, path, custom):
         assert path.parts[-1] == "meson.build"
@@ -215,15 +207,6 @@ class BuildDesc:
             k: v for k, v in self.elements.items() if k not in broken_provides
         }
 
-    def starts_with(self, subgroup, outpath):
-        depth = len(subgroup)
-        if depth > len(outpath):
-            return False
-        for i in range(depth):
-            if outpath[i] != subgroup[i]:
-                return False
-        return True
-
     def generalised_deps(self, subgroup, el):
         depth = len(subgroup)
         ret = set()
@@ -240,7 +223,7 @@ class BuildDesc:
                 )
                 exit(1)
             self.elements[dep]
-            if not self.starts_with(subgroup, self.elements[dep].outpath):
+            if not starts_with(subgroup, self.elements[dep].outpath):
                 continue
             if len(self.elements[dep].outpath) == depth:
                 ret.add(dep)
@@ -254,7 +237,7 @@ class BuildDesc:
     def get_dep_reason_dir_file(self, subgroup, dir_source, file_target):
         depth = len(subgroup)
         for key, el in self.elements.items():
-            if not self.starts_with(subgroup, el.outpath):
+            if not starts_with(subgroup, el.outpath):
                 continue
             if len(el.outpath) == depth:
                 continue
@@ -269,7 +252,7 @@ class BuildDesc:
         depth = len(subgroup)
         el = self.elements[file_source]
         for dep in el.ddeps:
-            if not self.starts_with(subgroup, self.elements[dep].outpath):
+            if not starts_with(subgroup, self.elements[dep].outpath):
                 continue
             if len(self.elements[dep].outpath) == depth:
                 continue
@@ -283,7 +266,7 @@ class BuildDesc:
     def get_dep_reason_dir_dir(self, subgroup, dir_source, dir_target):
         depth = len(subgroup)
         for key, el in self.elements.items():
-            if not self.starts_with(subgroup, el.outpath):
+            if not starts_with(subgroup, el.outpath):
                 continue
             if len(el.outpath) == depth:
                 continue
@@ -349,7 +332,7 @@ class BuildDesc:
         )
         exit(1)
 
-    # This topological_sort algorithm is deterministic and is biased to group subdirs together, to group targets together, to put subdirs before targets, and to make the result somewhat alphasorted.
+    # This topological_sort algorithm is deterministic and is biased to group subdirs (i.e. values of type Path) together, to group targets (i.e. values of type str) together, to put subdirs before targets, and to make the result somewhat alphasorted.
     def topological_sort(self, graph, subgroup):
         iddeps = build_reachable_dict(graph)
 
@@ -377,7 +360,7 @@ class BuildDesc:
         depth = len(subgroup)
         mixed_deps = {}
         for key, el in self.elements.items():
-            if not self.starts_with(subgroup, el.outpath):
+            if not starts_with(subgroup, el.outpath):
                 continue
             if len(el.outpath) == depth:
                 mixed_deps[key] = self.generalised_deps(subgroup, el)
@@ -413,7 +396,7 @@ class BuildDesc:
 
         entries = set()
         for key, el in self.elements.items():
-            if self.starts_with(subgroup, el.outpath):
+            if starts_with(subgroup, el.outpath):
                 if len(subgroup) != len(el.outpath):
                     entries.add(el.outpath[len(subgroup)])
 
