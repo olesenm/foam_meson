@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Maintainer: Volker Weißmann (volker.weissmann@gmx.de)
+
 import sys
 from os import path, listdir, walk
 import os
@@ -16,6 +18,7 @@ def create_symlinks_for_dir(subdir):
             continue
         if (
             fp.name
+            # Todo: explain that this lyy-m4 stuff, perhaps build this list dynamically
             in [  # ugly name collisions. I hope this does not result in any problems.
                 "fieldExprLemonParser.h",
                 "patchExprLemonParser.h",
@@ -24,6 +27,7 @@ def create_symlinks_for_dir(subdir):
         ):
             continue
         outfile = outdir / fp.name
+        # Todo: document that this depends on the order of the inode numbers
         if outfile.is_symlink():
             if os.readlink(outfile) != str(fp):
                 outfile.unlink()

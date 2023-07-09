@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Maintainer: Volker Weißmann (volker.weissmann@gmx.de)
+
 root_path="$1"
 input="$2"
 output="$3"

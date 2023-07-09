@@ -1,4 +1,6 @@
 #!/bin/sh
+# Maintainer: Volker Weißmann (volker.weissmann@gmx.de)
+
 set -euo pipefail
 IFS=$'\n\t'
 

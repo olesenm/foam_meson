@@ -1,4 +1,6 @@
 #!/bin/sh
+# Maintainer: Volker Weißmann (volker.weissmann@gmx.de)
+
 set -eu
 # If I set IFS=$'\n\t', this fails on debian for strange reasons
 

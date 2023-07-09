@@ -1,3 +1,5 @@
+// Maintainer: Volker Weißmann (volker.weissmann@gmx.de)
+
 // The file sigFpe.C contains code that will not compile if
 // - The OS is Linux -> __linux__ is defined
 // - The compiler is gcc -> __GNUX__ is defined
