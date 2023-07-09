@@ -260,24 +260,14 @@ def wmake_to_meson(project_root, api_version, wmake_dir, parsed_options):
     for include in includes:
         if isinstance(include, NonRecursiveInclude):
             path = include.path
-            if path.exists():
-                cpp_args.append(
-                    f"'-I' + meson.source_root() / '{path.relative_to(project_root)}'"  # grepmarker_relto_inc
-                )
-            else:
-                print(
-                    f"Warning: {path} does not exist, but {project_root / dirpath / 'options'} references it."
-                )
+            cpp_args.append(
+                f"'-I' + meson.source_root() / '{path.relative_to(project_root)}'"  # grepmarker_relto_inc
+            )
         elif isinstance(include, RecursiveInclude):
             path = include.path
-            if path.exists():
-                cpp_args.append(
-                    f"'-I' + recursive_include_dirs / '{path.relative_to(project_root)}'"  # grepmarker_relto_inc
-                )
-            else:
-                print(
-                    f"Warning: {path} does not exist, but {project_root / dirpath / 'options'} references it."
-                )
+            cpp_args.append(
+                f"'-I' + recursive_include_dirs / '{path.relative_to(project_root)}'"  # grepmarker_relto_inc
+            )
         else:
             raise NotImplemented
 
