@@ -412,7 +412,7 @@ def calc_includes_and_flags(
     return includes, compile_flags
 
 
-def calc_libs(optionsdict, typ: TargetType) -> T.List[Include]:
+def calc_libs(optionsdict, typ: TargetType):
     order_depends: T.List[str] = []
     dependencies: T.List[str] = []
     if typ == TargetType.exe:

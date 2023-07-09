@@ -673,13 +673,11 @@ def main():
 if __name__ == "__main__":
     try:
         main()
-    except EncountedComplexConfig as e:
+    except Exception as e:
+        import traceback
+
+        traceback.print_exc()
         print(
-            "\nERROR: Unable to generate meson.build files because we just encountered a known limitation in this script:\n"
-        )
-        assert len(e.args) == 1
-        print(e.args[0])
-        print(
-            "\nIssue Tracker: https://codeberg.org/Volker_Weissmann/foam_meson/issues"
+            "\nERROR: Unable to generate meson.build files because we just encountered a bug/limitation. Sorry. Please report it here: https://codeberg.org/Volker_Weissmann/foam_meson/issues"
         )
         sys.exit(1)
