@@ -50,12 +50,6 @@ for (
 ]:
     create_symlinks_for_dir(source_root / el)
 
-backlink = build_root / "source"
-if backlink.is_symlink():
-    assert os.readlink(backlink) == str(source_root)
-else:
-    backlink.symlink_to(source_root)
-
 Path(build_root / "fake.h").touch()  # To make sure this script is not rerun nedlessly
 
 # srcroot=$1
