@@ -225,6 +225,7 @@ fn find_hoists_needed_for_subgraph<'a, 'o: 'a>(
         dirs.iter()
             .map(|dir| cost_of_dir_a(&part, dir))
             .flatten()
+            .unique()
             .collect::<Vec<_>>(),
     );
     let mut hoists_always_needed = FastHN::from_hn(hoists_always_needed);

@@ -10,7 +10,7 @@ use crate::TargetName;
 type NodeIndex = petgraph::stable_graph::NodeIndex<petgraph::stable_graph::DefaultIx>;
 
 /// HoistsNeeded indicates which nodes need to be hoisted.
-#[derive(Debug, Clone, EnumAsInner)]
+#[derive(Debug, Clone, EnumAsInner, Hash, PartialEq, Eq)]
 pub enum HoistsNeeded {
     /// The Node given by the NodeIndex needs to be hoisted.
     Single(NodeIndex),
