@@ -1,86 +1,50 @@
 #!/usr/bin/env python3
+import os
+import sys
+import textwrap
+import argparse
+import shutil
+import typing as T
+import re
+from pathlib import Path
+import src.heuristics
+from src.meson_codegen import (
+    remove_prefix,
+    remove_suffix,
+    BuildDesc,
+    Template,
+    Node,
+)
+from src.scan_wmake import (
+    parse_files_file,
+    all_parse_options_file,
+    EncountedComplexConfig,
+    find_all_wmake_dirs,
+    calc_includes_and_flags,
+    calc_libs,
+    SimpleSourcefile,
+    FlexgenSourcefile,
+    CverSourcefile,
+    LyyM4Sourcefile,
+    NonRecursiveInclude,
+    RecursiveInclude,
+    TargetType,
+    mangle_name,
+    optional_deps,
+)
 
 GROUP_FULL_DIRS = False
 EXPLAIN_CODEGEN = False
 REGEN_ON_DIR_CHANGE = False
 LN_INCLUDE_MODEL = "always_regen"  # "always_regen" or "regen_on_reconfigure"
 
-from os import path, listdir, walk
-import os
-from src.meson_codegen import *
-from src.scan_wmake import *
-import sys
-import textwrap
-import pdb
-import argparse
-import subprocess
-import shutil
-import stat
-import src.heuristics
-
 
 def from_this_directory():
-    os.chdir(path.dirname(sys.argv[0]))
+    os.chdir(os.path.dirname(sys.argv[0]))
 
-
-# see https://stackoverflow.com/questions/12217537/can-i-force-debugging-python-on-assertionerror
-def info(type, value, tb):
-    if hasattr(sys, "ps1") or not sys.stderr.isatty():
-        # we are in interactive mode or we don't have a tty-like
-        # device, so we call the default hook
-        sys.__excepthook__(type, value, tb)
-    else:
-        import traceback, pdb
-
-        # we are NOT in interactive mode, print the exception...
-        traceback.print_exception(type, value, tb)
-        print
-        # ...then start the debugger in post-mortem mode.
-        pdb.pm()
-
-
-# sys.excepthook = info  # Todo: disable before release
 
 # attempting to add a target with one of these names needs to fail immediately to avoid confusing with system libraries
 target_blacklist = ["lib_boost_system", "lib_fftw3", "lib_mpi", "lib_z"]
-
-
-def find_subdirs(dirpath, el, varname="incdirs", include_directories=False):
-    assert el[-1] != "/"
-    mesonsrc = ""
-    fp = el
-    if not path.exists(dirpath + "/../" + fp):
-        print("warning, path does not exists")
-        return ""
-    includeDir = dirpath + "/../" + ("/".join(el.split("/")[:-1]))
-    # print(dirpath, el, includeDir, fp)
-    if include_directories:
-        mesonsrc += varname + " += include_directories('" + fp + "')\n"
-    else:
-        mesonsrc += varname + " += '" + fp + "'\n"
-    return mesonsrc
-    for entries in walk(includeDir, topdown=False):
-        flag = False
-        for fp in entries[2]:
-            if (
-                fp.endswith(".hpp")
-                or fp.endswith(".cpp")
-                or fp.endswith(".C")
-                or fp.endswith(".H")
-            ):
-                flag = True
-        if flag:
-            dp = remove_prefix(entries[0], dirpath)
-            if include_directories:
-                mesonsrc += (
-                    varname
-                    + " += include_directories('"
-                    + "/".join(dp.split("/")[2:])
-                    + "')\n"
-                )
-            else:
-                mesonsrc += varname + " += '" + "/".join(dp.split("/")[2:]) + "'\n"
-    return mesonsrc
 
 
 def are_all_files_included(files_srcs, dirname):
@@ -136,13 +100,13 @@ def to_meson_array(python_ar: T.List[str]) -> str:
         return "[\n" + "".join([f"    {el},\n" for el in python_ar]) + "]"
 
 
-def fix_ws_inline(src: str, spaces: int, prefixed: bool = False) -> str:
-    src = textwrap.dedent(src)
-    src = src.strip("\n")
-    src = src.replace("\n", "\n" + " " * spaces)
-    if not prefixed and src == "":
-        src += "# REMOVE NEWLINE"
-    return src
+def fix_ws_inline(source: str, spaces: int, prefixed: bool = False) -> str:
+    source = textwrap.dedent(source)
+    source = source.strip("\n")
+    source = source.replace("\n", "\n" + " " * spaces)
+    if not prefixed and source == "":
+        source += "# REMOVE NEWLINE"
+    return source
 
 
 def add_line_if(content: str, cond: bool) -> str:
@@ -162,14 +126,14 @@ class WhitespaceFixer:
 
     def __iadd__(self, other):
         if not isinstance(other, str):
-            return NotImplemented
+            return NotImplementedError
         else:
             other = textwrap.dedent(other)
             other = other.strip("\n")
             if other != "":
                 other += "\n"
             self.temp += other
-        return self
+            return self
 
     def __str__(self):
         ret = self.temp.replace("# REMOVE NEWLINE\n", "")
@@ -187,7 +151,7 @@ def wmake_to_meson(project_root, api_version, wmake_dir, parsed_options):
     template_part_1 = ""
     for el in specials:
         if el == "precision":
-            template_part_1 = f"""
+            template_part_1 = """
             dp_add = files('primitives/Vector/doubleVector/doubleVector.C', 'primitives/Tensor/doubleTensor/doubleTensor.C')
             sp_add = files('primitives/Vector/floatVector/floatVector.C', 'primitives/Tensor/floatTensor/floatTensor.C')
             if get_option('WM_PRECISION_OPTION') != 'DP'
@@ -197,7 +161,7 @@ def wmake_to_meson(project_root, api_version, wmake_dir, parsed_options):
             endif
             """
         elif el == "sunstack1":
-            template_part_1 = f"""
+            template_part_1 = """
             if host_machine.system() == 'sunos'
                 srcfiles += files('dummyPrintStack.C')
             else
@@ -205,7 +169,7 @@ def wmake_to_meson(project_root, api_version, wmake_dir, parsed_options):
             endif
             """
         elif el == "sunstack2":
-            template_part_1 = f"""
+            template_part_1 = """
             if host_machine.system() == 'sunos'
                 srcfiles += files('printStack/dummyPrintStack.C')
             else
@@ -247,7 +211,7 @@ def wmake_to_meson(project_root, api_version, wmake_dir, parsed_options):
             """
             other_srcs.append(varname)
         else:
-            raise NotImplemented
+            raise NotImplementedError
 
     rec_dirs_srcs = []
     if GROUP_FULL_DIRS:
@@ -269,7 +233,7 @@ def wmake_to_meson(project_root, api_version, wmake_dir, parsed_options):
                 f"'-I' + recursive_include_dirs / '{path.relative_to(project_root)}'"  # grepmarker_relto_inc
             )
         else:
-            raise NotImplemented
+            raise NotImplementedError
 
     template += f"""
     srcfiles = {fix_ws_inline(to_meson_array(srcs_quoted), 4, True)}
@@ -406,14 +370,6 @@ def is_subdir(parent, child):
     return child.startswith(parent)
 
 
-from json import JSONEncoder
-
-
-class MyEncoder(JSONEncoder):
-    def default(self, o):
-        return o.__dict__
-
-
 def get_api_version(project_root):
     for line in (project_root / "META-INFO" / "api-info").read_text().split():
         if line.startswith("api="):
@@ -442,7 +398,7 @@ def inner_generate_meson_build(project_root, args):
 
     api_version = get_api_version(project_root)
 
-    broken_dirs = [Path(p) for p in heuristics.broken_dirs()]
+    broken_dirs = [Path(p) for p in src.heuristics.broken_dirs()]
     wmake_dirs = find_all_wmake_dirs(project_root)
     totdesc = BuildDesc(project_root)
     parsed_options = all_parse_options_file(project_root, wmake_dirs)
@@ -573,7 +529,7 @@ def inner_generate_meson_build(project_root, args):
     ).strip()
     if LN_INCLUDE_MODEL == "regen_on_reconfigure":
         mainsrc += textwrap.dedent(
-            f"""
+            """
         lnInclude_hack = custom_target(
             'lnInclude_hack'
             output: 'fake.h',
@@ -587,7 +543,7 @@ def inner_generate_meson_build(project_root, args):
         )
     elif LN_INCLUDE_MODEL == "always_regen":
         mainsrc += textwrap.dedent(
-            f"""
+            """
         lnInclude_hack = custom_target(
             'lnInclude_hack',
             output: 'fake.h',
@@ -618,7 +574,7 @@ def inner_generate_meson_build(project_root, args):
             "WARNING: You enabled EXPLAIN_CODEGEN. Attempting to build will not work due to broken meson.build files."
         )
         totdesc.explainatory_helper()
-        return
+        sys.exit(0)
 
     # There is a nameclash problem. Without this hacky mitigation
     # here, the build will fail.
@@ -678,45 +634,7 @@ def inner_generate_meson_build(project_root, args):
     return files_written
 
 
-def old_main():
-    from_this_directory()
-    # os.chdir("..")
-    Path("disccache").mkdir(exist_ok=True)
-
-    project_root = Path.cwd() / "disccache" / "dev"
-
-    if not project_root.exists():
-        subprocess.check_call(
-            [
-                "git",
-                "clone",
-                "https://develop.openfoam.com/Development/openfoam.git",
-                project_root,
-                # "--depth=1",
-            ]
-        )
-    subprocess.check_call(
-        ["git", "checkout", "988ec18ecca76aa0cef65acbab765374416d61b6"],
-        cwd=project_root,
-    )
-
-    files_written = inner_generate_meson_build(project_root)
-
-    foam_hash = subprocess.check_output(
-        ["git", "rev-parse", "--verify", "HEAD"],
-        universal_newlines=True,
-        cwd=project_root,
-    ).strip()[0:10]
-    PATCH_OUTPUT = Path.cwd() / f"for_openfoam_commit_hash_{foam_hash}.diff"
-
-    os.chdir(project_root)
-    subprocess.check_call(["git", "reset", "HEAD"])
-    subprocess.check_call(["git", "add"] + [str(el) for el in files_written])
-    assert os.system(f"git diff HEAD > {PATCH_OUTPUT} && git reset HEAD") == 0
-
-
 def main():
-    # prog='generate_meson_build.py'
     parser = argparse.ArgumentParser(
         description="Generates meson.build files for an OpenFOAM repository."
     )
@@ -732,7 +650,7 @@ def main():
     project_root = getattr(args, "project-dir")
     if not project_root.exists():
         print(f"ERROR: '{project_root}' does not exist")
-        exit(1)
+        sys.exit(1)
     project_root = project_root.resolve()
     files_written = inner_generate_meson_build(project_root, args)
     print(
@@ -764,4 +682,4 @@ if __name__ == "__main__":
         print(
             "\nIssue Tracker: https://codeberg.org/Volker_Weissmann/foam_meson/issues"
         )
-        exit(1)
+        sys.exit(1)

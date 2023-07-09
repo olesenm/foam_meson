@@ -1,16 +1,16 @@
 #!/usr/bin/env false
-from os import path
 import re
 import tempfile
 import subprocess
-import pdb
 from pathlib import Path
 import pickle
 import typing as T
 import os
-from .meson_codegen import *
 from enum import Enum
+from .meson_codegen import remove_prefix
 from . import heuristics
+
+ACTIVATE_CACHE = False
 
 optional_deps = {
     "mpfr": "lib",
@@ -41,9 +41,6 @@ def mangle_name(name):
     return name.replace(".", "_").replace("-", "_").replace("/", "_slash_")
 
 
-ACTIVATE_CACHE = False
-
-
 # Kind of broken since it does not hash the function arguments
 def disccache(original_func):
     def new_func(*args, **kwargs):
@@ -52,10 +49,12 @@ def disccache(original_func):
         fp = Path("disccache") / (original_func.__name__ + ".pickle")
         if fp.exists():
             print(f"Loading cache from {fp}")
-            return pickle.load(open(fp, "rb"))
+            with open(fp, "rb") as pfile:
+                return pickle.load(pfile)
         else:
             ret = original_func(*args, **kwargs)
-            pickle.dump(ret, open(fp, "wb"))
+            with open(fp, "wb") as pfile:
+                pickle.dump(ret, pfile)
             return ret
 
     return new_func
@@ -67,7 +66,7 @@ def find_all_wmake_dirs(PROJECT_ROOT):
     scanning_disabled = [Path(p) for p in heuristics.scanning_disabled()]
     ret = []
     for el in PROJECT_ROOT.rglob("Make"):
-        if not path.isdir(el):
+        if not os.path.isdir(el):
             continue
         el = el.relative_to(PROJECT_ROOT)
         el = el.parent
@@ -107,18 +106,18 @@ def parse_options_file(PROJECT_ROOT, wmake_dir):
         makefilesource = makefilesource.replace(f"{line}", "")
 
     vardict = {
-        "$(LIB_SRC)": path.relpath("src", wmake_dir),
-        "${LIB_SRC}": path.relpath("src", wmake_dir),
-        "$(FOAM_UTILITIES)": path.relpath("applications/utilities", wmake_dir),
-        "$(FOAM_SOLVERS)": path.relpath("applications/solvers", wmake_dir),
+        "$(LIB_SRC)": os.path.relpath("src", wmake_dir),
+        "${LIB_SRC}": os.path.relpath("src", wmake_dir),
+        "$(FOAM_UTILITIES)": os.path.relpath("applications/utilities", wmake_dir),
+        "$(FOAM_SOLVERS)": os.path.relpath("applications/solvers", wmake_dir),
         "$(GENERAL_RULES)": str(PROJECT_ROOT / "wmake/rules/General"),
         "$(PLIBS)": "-lmpi",
         "$(PFLAGS)": "-DMPICH_SKIP_MPICXX -DOMPI_SKIP_MPICXX",
     }
 
     with tempfile.NamedTemporaryFile("w") as makeout:
-        for key in vardict:
-            makeout.write(key[2:-1] + "=" + vardict[key] + "\n")
+        for k, v in vardict.items():
+            makeout.write(k[2:-1] + "=" + v + "\n")
         makeout.write(makefilesource)
         makeout.write(
             "\nprint_stuff:\n\techo $(LIB_INC)\n\techo $(EXE_INC)\n\techo $(LIB_LIBS)\n\techo $(EXE_LIBS)\n"
@@ -128,7 +127,7 @@ def parse_options_file(PROJECT_ROOT, wmake_dir):
         # import time
 
         # time.sleep(10000)
-        vars = (
+        varlist = (
             subprocess.check_output(
                 "make -s print_stuff --file " + makeout.name,
                 shell=True,
@@ -137,12 +136,12 @@ def parse_options_file(PROJECT_ROOT, wmake_dir):
             .decode()
             .split("\n")
         )
-    vardict["$(LIB_INC)"] = vars[0]
-    vardict["$(EXE_INC)"] = vars[1]
-    vardict["$(LIB_LIBS)"] = vars[2]
-    vardict["$(EXE_LIBS)"] = vars[3]
-    assert vars[0] == "" or vars[1] == ""
-    assert vars[2] == "" or vars[3] == ""
+    vardict["$(LIB_INC)"] = varlist[0]
+    vardict["$(EXE_INC)"] = varlist[1]
+    vardict["$(LIB_LIBS)"] = varlist[2]
+    vardict["$(EXE_LIBS)"] = varlist[3]
+    assert varlist[0] == "" or varlist[1] == ""
+    assert varlist[2] == "" or varlist[3] == ""
     return vardict
 
 
@@ -383,8 +382,9 @@ def calc_includes_and_flags(
                     compile_flags.append(f"'{el}'")
             elif el.startswith("-I"):
                 if "$" in el:
-                    print(dirpath, "warning: unresolved variable in ", el)
-                    continue
+                    raise EncountedComplexConfig(
+                        f"Unable to evaluate '{el}' in '{options_path}'"
+                    )
                 el = remove_prefix(el, "-I")
                 if os.path.isabs(el):
                     abspath = Path(el)
@@ -402,22 +402,11 @@ def calc_includes_and_flags(
                 if abspath.parts[-1] == "lnInclude":
                     recdir = abspath.parent
                     includes.append(RecursiveInclude(recdir))
-                    continue
                 else:
                     includes.append(NonRecursiveInclude(abspath))
-                    continue
-                    if path.exists(abspath):
-                        incdirs.append("'<PATH>" + str(abspath) + "</PATH>'")
-                    else:
-                        print(
-                            "warning:",
-                            abspath,
-                            "does not exist",
-                        )
-                        show_debugging_help(arg)
             else:
                 raise NotImplementedError("Unknown compiler flag")
-    includes.append(RecursiveInclude(PROJECT_ROOT / wmake_dir)),
+    includes.append(RecursiveInclude(PROJECT_ROOT / wmake_dir))
     includes.append(RecursiveInclude(PROJECT_ROOT / "src" / "OpenFOAM"))
     includes.append(RecursiveInclude(PROJECT_ROOT / "src" / "OSspecific" / "POSIX"))
     return includes, compile_flags
@@ -446,7 +435,7 @@ def calc_libs(optionsdict, typ: TargetType) -> T.List[Include]:
                 continue
             if el.startswith("-L"):
                 continue
-            if el.startswith("-Wl,") and el.endswith(path.sep + "openmpi"):
+            if el.startswith("-Wl,") and el.endswith(os.path.sep + "openmpi"):
                 # on my machine: el == "-Wl,/usr/lib/openmpi"
                 continue
             if el in [
@@ -459,12 +448,11 @@ def calc_libs(optionsdict, typ: TargetType) -> T.List[Include]:
                 # I don't really know what these flags do, but I think we would notice it if it would be necessary.
                 continue
             if not el.startswith("-l"):
-                print("warning in ", dirpath, ": not starting with -l: ", el)
-                exit(1)
-                continue
+                raise EncountedComplexConfig(
+                    f"I don't know how to handle this line: {el}"
+                )
 
             el = remove_prefix(el, "-l")
-            flag = True
             if el in [
                 "boost_system",
                 "fftw3",

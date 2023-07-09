@@ -159,9 +159,9 @@ class Tree:
                 name_to_group = {}
                 group_to_names = defaultdict(list)
                 for el in interesting:
-                    subgraph[el.provides] = set(
-                        [x for x in el.ddeps if self.elements[x] in interesting]
-                    )
+                    subgraph[el.provides] = {
+                        x for x in el.ddeps if self.elements[x] in interesting
+                    }
                     if len(el.outpath) == len(self.path):
                         group = SingleTarget(el.provides)
                     else:
@@ -189,7 +189,7 @@ class Tree:
 # Why? Because every list in hoists_needed contains either "c" or "k" and len(["c", "k"]) is as small as possible.
 # It is not guaranteed that the returned list actually as small as possible, as this is only a heuristic
 def minimum_hoists_needed_approx(hoists_needed: T.List[T.List[str]]):
-    names = set([item for sublist in hoists_needed for item in sublist])
+    names = {item for sublist in hoists_needed for item in sublist}
     chosen = []
     while True:
         num_occurences = {
@@ -231,10 +231,6 @@ class Directory:
 
 
 def build_tree(elements):
-    graph = {el.provides: el.ddeps for el in elements.values()}
-    reachable_dict = meson_codegen.build_reachable_dict(graph)
-    rev_reachable_dict = invert_graph(reachable_dict)
-
     tree = Tree([], elements)
     for key, value in elements.items():
         assert key == value.provides

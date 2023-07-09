@@ -2,7 +2,6 @@
 # Maintainer: Volker Weißmann (volker.weissmann@gmx.de)
 
 import sys
-from os import path, listdir, walk
 import os
 from pathlib import Path
 
@@ -37,7 +36,7 @@ def create_symlinks_for_dir(subdir):
 
 
 for subdir in source_root.rglob("Make"):
-    if not path.isdir(subdir):
+    if not os.path.isdir(subdir):
         continue
     subdir = subdir.parent
     create_symlinks_for_dir(subdir)

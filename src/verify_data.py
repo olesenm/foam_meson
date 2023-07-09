@@ -25,6 +25,7 @@ for el in heuristics.broken_dirs() + heuristics.scanning_disabled():
             "-c",
             f"source etc/bashrc; export PATH=\"$PWD/meson/shim:$PATH\"; cd '{el}' ; wmake",
         ],
+        check=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )

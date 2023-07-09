@@ -10,11 +10,11 @@ import os
 import json
 import textwrap
 import subprocess
-import pidfile
 import shutil
 import sys
 import argparse
 from pathlib import Path
+import pidfile
 
 
 def sane_getout(cmd, cwd=None):
@@ -49,7 +49,7 @@ def install_deps(distro):
 
         """
     else:
-        raise NotImplemented
+        raise NotImplementedError
 
 
 def prepare(distro):
@@ -62,7 +62,7 @@ def prepare(distro):
                 set -u
         """
     else:
-        raise NotImplemented
+        raise NotImplementedError
 
 
 def meson_cmd(distro):
@@ -71,7 +71,7 @@ def meson_cmd(distro):
     elif distro == "opensuse/leap":
         return "meson"
     else:
-        raise NotImplemented
+        raise NotImplementedError
 
 
 def total(distro):
@@ -118,7 +118,9 @@ def print_git_status(path):
 
 
 def run_in_container(distro, log_suffix, script):
-    with open(f"{container_name(distro)}_{log_suffix}.log", "w") as ofile:
+    with open(
+        f"{container_name(distro)}_{log_suffix}.log", "w", encoding="utf-8"
+    ) as ofile:
         subprocess.run(
             [
                 "podman",
@@ -143,7 +145,8 @@ def main():
     ]
 
     if os.geteuid() != 0:
-        raise Exception("This script must be run as root.")
+        print("This script must be run as root.")
+        sys.exit(1)
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--inner-call", action="store_true")
@@ -170,7 +173,7 @@ def main():
                 )
                 sane_call(["git", "checkout", "develop"], cwd=wd / "foam_meson")
                 sane_call(["git", "remote", "remove", "origin"], cwd=wd / "foam_meson")
-            with open(wd / "testpipeline.log", "w") as lfile:
+            with open(wd / "testpipeline.log", "w", encoding="utf-8") as lfile:
                 lfile.write(f"Args: {sys.argv}\n")
                 lfile.flush()
                 subprocess.run(
@@ -179,7 +182,7 @@ def main():
                     stderr=lfile,
                     check=True,
                 )
-            exit(0)
+            sys.exit(0)
 
         print(sys.argv)
         os.chdir(wd)
@@ -229,9 +232,6 @@ def main():
                 cwd="/root/openfoam",
             )
             print_git_status("/root/openfoam")
-            foam_hash = sane_getout(
-                ["git", "rev-parse", "--verify", "HEAD"], cwd="/root/openfoam"
-            ).strip()
 
             patches = {}
             for distro in all_distros:
