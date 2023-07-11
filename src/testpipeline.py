@@ -54,7 +54,7 @@ def install_deps(distro):
 
 def prepare(distro):
     if distro in ["debian", "ubuntu"]:
-        return 'source "$HOME/.cargo/env"'
+        return ""
     elif distro == "opensuse/leap":
         return """
                 set +u
