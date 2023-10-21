@@ -81,6 +81,8 @@ executable('exename', srcfiles, ...)
     - ninja buoyantBoussinesqPimpleFoam.p/applications_solvers_heatTransfer_buoyantBoussinesqPimpleFoam_buoyantBoussinesqPimpleFoam.cpp.o
     - ninja libfieldFunctionObjects.so.p/src_functionObjects_field_PecletNo_PecletNo.cpp.o
     - ninja correctBoundaryConditions
+- If kahip is found, but metis is not found, compiling lib_kahipDecomp is a waste of time
+- generate_meson_build.py should use multiple cores
 
 ## Maybe Never
 - Doxygen

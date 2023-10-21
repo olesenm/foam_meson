@@ -1,6 +1,6 @@
 # Meson-based alternative Build System
 
-This project is intended to provide an alternative to building OpenFOAM with wmake. It is very much WiP.
+This project is intended to provide an alternative to building OpenFOAM with wmake.
 
 ## Example Usage
 
@@ -27,7 +27,7 @@ Note that `source etc/bashrc` is not needed.
   - zoltan
   - mgrid
   - ccmio
-  - kahip
+  - kahip (blocked on https://github.com/KaHIP/KaHIP/pull/135 and https://github.com/mesonbuild/meson/pull/11932)
   - scotch
 - ninja install is not tested yet
 - Generating Binary Packages for e.g. `apt-get install openfoam`

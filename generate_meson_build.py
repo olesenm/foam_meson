@@ -524,7 +524,7 @@ def inner_generate_meson_build(project_root, args):
     m4lemon = find_program('etc' / 'meson_helpers' / 'm4lemon.sh')
 
     recursive_include_dirs = meson.build_root()
-    # lnInclude_hack ensures that `ls recursive_include_dirs/some/dir` would show symlinks to all files shown by `find meson.source_root()/some/dir -name "*.[CHh]"`
+    # lnInclude_hack ensures that `ls recursive_include_dirs/some/dir` would show symlinks to all files shown by `find meson.source_root()/some/dir -name "*.[CHh]"` # todo: link to relevant documentation here
     """
     ).strip()
     if LN_INCLUDE_MODEL == "regen_on_reconfigure":
