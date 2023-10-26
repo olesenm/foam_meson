@@ -78,7 +78,11 @@ def find_group_cycles(subgraph, name_to_group, group_to_names):
         for v1 in ar1:
             if name_to_group[v1] == name_to_group[k1]:
                 continue
+            if len(group_to_names[name_to_group[v1]]) != 1:
+                steps[k1].add(v1)
             for v2 in rd[v1]:
+                if len(group_to_names[name_to_group[v2]]) == 1:
+                    continue
                 steps[k1].add(v2)
 
     while True:
@@ -109,6 +113,38 @@ def find_group_cycles(subgraph, name_to_group, group_to_names):
                         cycles.append([x.src for x in path])
         if len(cycles) > 0:
             return cycles
+
+def testhelper(subgraph, group_to_names, expected_hoists_needed, ar_expected_hoists_chosen):
+    name_to_group = {}
+    for d, ar in group_to_names.items():
+        for el in ar:
+            name_to_group[el] = d
+
+    hoists_needed = find_group_cycles(subgraph, name_to_group, group_to_names)
+    hoists_chosen = minimum_hoists_needed_approx(hoists_needed)
+
+    hoists_needed = {frozenset(x) for x in hoists_needed} # order is irrelevant, duplicates are kinda irrelevant
+    expected_hoists_needed = {frozenset(x) for x in expected_hoists_needed} # order is irrelevant
+
+    hoists_chosen = set(hoists_chosen) # order is irrelevant
+    ar_expected_hoists_chosen = [set(x) for x in ar_expected_hoists_chosen] # order is irrelevant
+
+    assert hoists_needed == expected_hoists_needed
+    assert hoists_chosen in ar_expected_hoists_chosen
+
+def unittests_graph_stuff():
+    testhelper(
+        {'1': {'2'}, '2': {'3'}, '3': {}},
+        {Directory('a'): {'1', '3'}, Directory('b'): {'2'}},
+        [['3', '1']],
+        [['3'], ['1']]
+    )
+    testhelper(
+        {'1': {'2'}, '2': {}, '3': {'4'}, '4': {}},
+        {Directory('a'): {'1', '4'}, Directory('b'): {'2', '3'}},
+        [['1', '2', '3', '4']],
+        [['1'], ['2'], ['3'], ['4']]
+    )
 
 
 class Tree:
@@ -228,6 +264,9 @@ class Directory:
 
     def __hash__(self):
         return hash((self.__class__.__name__, self.name))
+
+    def __repr__(self):
+        return f"Directory('{self.name}')"
 
 
 def build_tree(elements):
