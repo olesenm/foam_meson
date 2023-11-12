@@ -1,4 +1,13 @@
 #!/bin/false
+#--------------------------------*- python -*----------------------------------
+#
+# Copyright (C) 2023 Volker Weissmann
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Description
+#
+#------------------------------------------------------------------------------
+
 from collections import defaultdict
 import typing as T
 from . import meson_codegen
@@ -283,3 +292,5 @@ def build_tree(elements):
                 head.subtrees[x] = Tree(path.copy(), elements)
                 head = head.subtrees[x]
     return tree
+
+#------------------------------------------------------------------------------

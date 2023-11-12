@@ -1,3 +1,12 @@
+#--------------------------------*- python -*----------------------------------
+#
+# Copyright (C) 2023 Volker Weissmann
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Description
+#
+#------------------------------------------------------------------------------
+
 def scanning_disabled():
     # If you touch/remove applications/test/00-dummy, be sure to test it on the maintenance-v2006 branch.
     return ["applications/test/00-dummy", "src/OSspecific/MSwindows"]
@@ -20,3 +29,5 @@ def broken_dirs():
         # I don't know how to build this
         "applications/utilities/mesh/generation/foamyMesh/foamyHexMeshSurfaceSimplify",
     ]
+
+#------------------------------------------------------------------------------

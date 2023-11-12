@@ -1,4 +1,13 @@
 #!/usr/bin/env false
+#--------------------------------*- python -*----------------------------------
+#
+# Copyright (C) 2023 Volker Weissmann
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Description
+#
+#------------------------------------------------------------------------------
+
 import re
 import tempfile
 import subprocess
@@ -463,3 +472,5 @@ def calc_libs(optionsdict, typ: TargetType):
             else:
                 order_depends.append("lib_" + mangle_name(el))
     return order_depends, dependencies
+
+#------------------------------------------------------------------------------

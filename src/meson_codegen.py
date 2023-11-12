@@ -1,6 +1,18 @@
 #!/bin/false
-# generate_meson_build.py gives the recipes we want to build to this file. This file then sorts them, makes the paths relative and as short as possible (e.g. abc/../abc is just abc), splits the recipes among different meson.build files and finally writes it out to disk.
-# Grep for EXPLAIN_CODEGEN will help you understand it
+#--------------------------------*- python -*----------------------------------
+#
+# Copyright (C) 2023 Volker Weissmann
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Description
+#   generate_meson_build.py gives the recipes we want to build to this
+#   file. This file then sorts them, makes the paths relative and as
+#   short as possible (e.g. abc/../abc is just abc), splits the recipes
+#   among different meson.build files and finally writes it out to disk.
+#
+#   Grep for EXPLAIN_CODEGEN will help you understand it
+#
+#------------------------------------------------------------------------------
 import os
 import sys
 import re
@@ -368,3 +380,5 @@ def largest_commons_prefix(paths):
     if os.path.isfile(com):
         com = os.path.dirname(com)
     return com
+
+#------------------------------------------------------------------------------

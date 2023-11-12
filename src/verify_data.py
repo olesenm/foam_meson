@@ -1,4 +1,13 @@
 #!/usr/bin/env python3
+#--------------------------------*- python -*----------------------------------
+#
+# Copyright (C) 2023 Volker Weissmann
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Description
+#
+#------------------------------------------------------------------------------
+
 import os
 from os import path
 import sys
@@ -33,3 +42,5 @@ for el in heuristics.broken_dirs() + heuristics.scanning_disabled():
         print(
             f"Warning: Why is {el} marked as broken, even though compilation works fine?"
         )
+
+#------------------------------------------------------------------------------

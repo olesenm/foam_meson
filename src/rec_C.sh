@@ -1,5 +1,15 @@
 #!/bin/sh
+#------------------------------------------------------------------------------
+#
+# Copyright (C) 2023 Volker Weissmann
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Description
+#     Check if you have a .C file that is not used anywhere
+#
 # Maintainer: Volker Weißmann (volker.weissmann@gmx.de)
+#
+#------------------------------------------------------------------------------
 
 set -euo pipefail
 IFS=$'\n\t'
@@ -10,3 +20,5 @@ IFS=$'\n\t'
 for i in $(find $1 -name '*.C' ! -path '*lnInclude*'); do
   echo $i
 done
+
+#------------------------------------------------------------------------------

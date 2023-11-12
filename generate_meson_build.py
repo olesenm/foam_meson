@@ -1,4 +1,13 @@
 #!/usr/bin/env python3
+#--------------------------------*- python -*----------------------------------
+#
+# Copyright (C) 2023 Volker Weissmann
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Description
+#
+#------------------------------------------------------------------------------
+
 import os
 import sys
 import textwrap
@@ -681,3 +690,5 @@ if __name__ == "__main__":
             "\nERROR: Unable to generate meson.build files because we just encountered a bug/limitation. Sorry. Please report it here: https://codeberg.org/Volker_Weissmann/foam_meson/issues"
         )
         sys.exit(1)
+
+#------------------------------------------------------------------------------

@@ -1,10 +1,18 @@
 #!/usr/bin/env python
+#--------------------------------*- python -*----------------------------------
+#
+# Copyright (C) 2023 Volker Weissmann
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Description
+#
 # Note that this script is written by someone with very little experience with containers
-
+#
 # todo do not hardcode 988ec18ecc
 # todo: check if the patch is not too large. Sometimes I accidentally include other stuff in the patch
-
+#
 # sudo ./test.sh | tee test.log ; notifyShutdown.py
+#------------------------------------------------------------------------------
 
 import os
 import json
@@ -315,3 +323,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+#------------------------------------------------------------------------------

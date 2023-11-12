@@ -1,5 +1,13 @@
 #!/usr/bin/env python3
+#--------------------------------*- python -*----------------------------------
+#
+# Copyright (C) 2023 Volker Weissmann
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Description
+#
 # Maintainer: Volker Weißmann (volker.weissmann@gmx.de)
+#------------------------------------------------------------------------------
 
 import sys
 import os
@@ -71,3 +79,5 @@ Path(build_root / "fake.h").touch()  # To make sure this script is not rerun ned
 # #         ln -s "$rootdir/$el" "$el"
 # #     fi
 # # done
+
+#------------------------------------------------------------------------------
